@@ -3,6 +3,7 @@ import json
 import shutil
 import time
 import threading
+import re
 from pathlib import Path
 from collections import deque
 
@@ -15,7 +16,6 @@ STATE = Path("state/offset.json")
 WORK = Path("work")
 OUT = Path("out")
 
-# Глобальная очередь задач
 queue = deque()
 queue_lock = threading.Lock()
 
@@ -32,50 +32,53 @@ def pipeline(idea: str, chat_id: int):
     if WORK.exists(): shutil.rmtree(WORK)
     WORK.mkdir(); OUT.mkdir(exist_ok=True)
 
+    # 1. Узнаем формат (9:16 или 16:9)
+    is_vertical = "9:16" in idea or "вертикальн" in idea.lower()
+    
+    # 2. Узнаем длительность
+    duration_match = re.search(r'(\d+)\s*(сек|секунд)', idea.lower())
+    total_duration = int(duration_match.group(1)) if duration_match else 15
+    total_duration = max(3, min(60, total_duration)) # Ограничим от 3 до 60 секунд
+
     send_message(chat_id, "✍️ Сценарист пишет историю…")
     script = screenwriter.run(idea)
 
     send_message(chat_id, f"🎬 Режиссёр строит план: {script.get('title','')}")
     plan = director.run(script)
 
+    # Берем только 3 сцены и раскидываем время
+    plan["scenes"] = plan["scenes"][:3]
+    duration_per_scene = total_duration / len(plan["scenes"])
+    for sc in plan["scenes"]:
+        sc["duration"] = duration_per_scene
+
     send_message(chat_id, f"🎨 Художник рисует сцены ({plan['style'].upper()})…")
     scenes_html = []
     for sc in plan["scenes"]:
-        html = artist.run(sc, plan)
+        # Передаем изначальную идею художнику, чтобы он знал, ЧТО рисовать
+        html = artist.run(sc, plan, original_idea=idea)
         html = inject(html, float(sc["duration"]))
         scenes_html.append((html, sc["duration"]))
 
-        send_message(chat_id, "🔊 Озвучиваю…")
+    send_message(chat_id, "🔊 Озвучиваю…")
     audio_parts = []
     for i, sc in enumerate(plan["scenes"]):
         p = WORK / f"a_{i}.wav"
+        clean_text = script["scenes"][i].get("narration", "") if i < len(script["scenes"]) else sc.get("text", "")
         
-        # Берем чистый текст для озвучки из сценария
-        if i < len(script["scenes"]):
-            # Если сценарист написал текст в narration — берем его
-            clean_text = script["scenes"][i].get("narration", "")
-        else:
-            clean_text = ""
-            
-        # Если сценарист забыл написать текст, берем текст с экрана
-        if not clean_text:
-            clean_text = sc.get("text", "")
-            
-        # Если вообще пусто — пропускаем генерацию голоса для этой сцены
         if not clean_text.strip():
             audio_parts.append(None)
             continue
             
         mood = script["scenes"][i].get("mood") if i < len(script["scenes"]) else None
         instruct = f"говори {mood}" if mood else None
-        
-        print(f"Озвучиваю текст: '{clean_text}'") # Выведем в логи, что именно он говорит
         synth(clean_text, str(p), instruct=instruct)
         audio_parts.append(p)
 
     send_message(chat_id, "🎥 Рендерю кадры…")
     from render import render_all
-    asyncio.run(render_all(scenes_html, WORK / "frames"))
+    # Передаем формат в рендер (9:16 или 16:9)
+    asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical))
 
     send_message(chat_id, "✂️ Монтаж…")
     mp4 = OUT / "video.mp4"
@@ -84,7 +87,6 @@ def pipeline(idea: str, chat_id: int):
     send_message(chat_id, "📤 Отправляю…")
     send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
 
-# ЭТА ФУНКЦИЯ РАБОТАЕТ В ФОНЕ (Слушатель)
 def listener():
     offset = load_offset()
     while True:
@@ -101,10 +103,9 @@ def listener():
                 chat_id, text = msg["chat"]["id"], msg["text"]
                 
                 if text.startswith("/start"):
-                    send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео (2D или 3D).")
+                    send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео. Укажи формат (9:16 или 16:9) и длительность (например, '10 секунд').")
                     continue
                 
-                # Мгновенно отвечаем и кидаем в очередь
                 with queue_lock:
                     queue.append({"chat_id": chat_id, "idea": text})
                     pos = len(queue)
@@ -113,7 +114,6 @@ def listener():
             print(f"Ошибка в слушателе: {e}")
             time.sleep(5)
 
-# ЭТА ФУНКЦИЯ РАБОТАЕТ В ОСНОВНОМ ПОТОКЕ (Генератор)
 def worker():
     print("Генератор запущен...")
     while True:
@@ -128,19 +128,16 @@ def worker():
             except Exception as e:
                 send_message(task["chat_id"], f"❌ Ошибка генерации: {type(e).__name__}: {e}")
         else:
-            time.sleep(2) # Если очередь пуста — отдыхаем 2 секунды
+            time.sleep(2)
 
 def main():
     print("Бот запущен. Слушатель и генератор в работе...")
     start_time = time.time()
-    
-    # Запускаем слушателя в фоновом потоке
     t = threading.Thread(target=listener, daemon=True)
     t.start()
     
-    # Работаем 5 часов 50 минут
     while time.time() - start_time < 21000:
-        worker() # Генератор крутится в основном потоке
+        worker()
 
 if __name__ == "__main__":
     main()
