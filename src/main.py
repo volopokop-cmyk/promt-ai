@@ -5,7 +5,7 @@ from pathlib import Path
 
 from telegram import get_updates, send_message, send_video
 from agents import screenwriter, director, artist, editor
-from qwen_tts import synth
+from tts_engine import synth
 from watermark import inject
 
 STATE = Path("state/offset.json")
