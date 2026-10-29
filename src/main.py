@@ -1,8 +1,9 @@
 import asyncio
 import json
 import shutil
-import time # <-- Добавили время
+import time
 from pathlib import Path
+from collections import deque
 
 from telegram import get_updates, send_message, send_video
 from agents import screenwriter, director, artist, editor
@@ -60,36 +61,48 @@ def pipeline(idea: str, chat_id: int):
     send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
 
 def main():
-    print("Бот запущен в режиме реального времени (до 5.5 часов)...")
+    print("Бот запущен. Слушаю сообщения и формирую очередь...")
     start_time = time.time()
     offset = load_offset()
+    
+    # Наша очередь задач (сообщений)
+    queue = deque()
 
-    # Работаем 5 часов 50 минут (21000 секунд), чтобы успеть до 6-часового лимита GitHub
+    # Работаем 5 часов 50 минут
     while time.time() - start_time < 21000:
         try:
-            updates = get_updates(offset, timeout=50)
+            # 1. Проверяем новые сообщения (ждем до 10 секунд)
+            updates = get_updates(offset, timeout=10)
             
             for upd in updates:
                 offset = upd["update_id"] + 1
-                save_offset(offset) # сохраняем сразу, чтобы не потерять
+                save_offset(offset)
                 
                 msg = upd.get("message")
                 if not msg or "text" not in msg:
                     continue
+                    
                 chat_id, text = msg["chat"]["id"], msg["text"]
                 
                 if text.startswith("/start"):
                     send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео (2D или 3D).")
                     continue
                 
+                # Добавляем в очередь и сразу отвечаем, чтобы человек не ждал
+                queue.append({"chat_id": chat_id, "idea": text})
+                send_message(chat_id, f"🎬 Принято в очередь! Ты {len(queue)}-й. Начинаю генерацию, как только освобожусь.")
+            
+            # 2. Если есть задачи в очереди и мы не заняты — берем одну
+            if queue:
+                task = queue.popleft()
                 try:
-                    pipeline(text, chat_id)
+                    pipeline(task["idea"], task["chat_id"])
                 except Exception as e:
-                    send_message(chat_id, f"❌ {type(e).__name__}: {e}")
+                    send_message(task["chat_id"], f"❌ Ошибка генерации: {type(e).__name__}: {e}")
                     
         except Exception as e:
             print(f"Ошибка сети: {e}")
-            time.sleep(5) # если интернет моргнул, ждем 5 сек и пробуем снова
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
