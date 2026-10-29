@@ -4,11 +4,12 @@ import requests
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-def get_updates(offset: int | None):
-    params = {"timeout": 0, "allowed_updates": '["message"]'}
+def get_updates(offset: int | None, timeout: int = 50): # <-- Добавили timeout
+    params = {"timeout": timeout, "allowed_updates": '["message"]'}
     if offset is not None:
         params["offset"] = offset
-    r = requests.get(f"{API}/getUpdates", params=params, timeout=60)
+    # Таймаут запроса должен быть больше, чем таймаут Telegram
+    r = requests.get(f"{API}/getUpdates", params=params, timeout=timeout + 10)
     return r.json().get("result", [])
 
 def send_message(chat_id: int, text: str):
