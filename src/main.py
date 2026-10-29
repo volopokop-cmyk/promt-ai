@@ -45,13 +45,32 @@ def pipeline(idea: str, chat_id: int):
         html = inject(html, float(sc["duration"]))
         scenes_html.append((html, sc["duration"]))
 
-    send_message(chat_id, "🔊 Озвучиваю…")
+        send_message(chat_id, "🔊 Озвучиваю…")
     audio_parts = []
     for i, sc in enumerate(plan["scenes"]):
         p = WORK / f"a_{i}.wav"
+        
+        # Берем чистый текст для озвучки из сценария
+        if i < len(script["scenes"]):
+            # Если сценарист написал текст в narration — берем его
+            clean_text = script["scenes"][i].get("narration", "")
+        else:
+            clean_text = ""
+            
+        # Если сценарист забыл написать текст, берем текст с экрана
+        if not clean_text:
+            clean_text = sc.get("text", "")
+            
+        # Если вообще пусто — пропускаем генерацию голоса для этой сцены
+        if not clean_text.strip():
+            audio_parts.append(None)
+            continue
+            
         mood = script["scenes"][i].get("mood") if i < len(script["scenes"]) else None
         instruct = f"говори {mood}" if mood else None
-        synth(sc["narration"], str(p), instruct=instruct)
+        
+        print(f"Озвучиваю текст: '{clean_text}'") # Выведем в логи, что именно он говорит
+        synth(clean_text, str(p), instruct=instruct)
         audio_parts.append(p)
 
     send_message(chat_id, "🎥 Рендерю кадры…")
