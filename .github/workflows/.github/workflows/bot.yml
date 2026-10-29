@@ -1,0 +1,48 @@
+name: promt-bot
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore offset
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: tg-offset-${{ github.run_id }}
+          restore-keys: tg-offset-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Cache HF models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ hashFiles('requirements.txt') }}
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Poll & process
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: python src/main.py
+
+      - name: Save offset
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: tg-offset-${{ github.run_id }}
