@@ -2,6 +2,7 @@ import asyncio
 import json
 import shutil
 import time
+import threading
 from pathlib import Path
 from collections import deque
 
@@ -13,6 +14,10 @@ from watermark import inject
 STATE = Path("state/offset.json")
 WORK = Path("work")
 OUT = Path("out")
+
+# Глобальная очередь задач
+queue = deque()
+queue_lock = threading.Lock()
 
 def load_offset():
     if STATE.exists():
@@ -60,20 +65,12 @@ def pipeline(idea: str, chat_id: int):
     send_message(chat_id, "📤 Отправляю…")
     send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
 
-def main():
-    print("Бот запущен. Слушаю сообщения и формирую очередь...")
-    start_time = time.time()
+# ЭТА ФУНКЦИЯ РАБОТАЕТ В ФОНЕ (Слушатель)
+def listener():
     offset = load_offset()
-    
-    # Наша очередь задач (сообщений)
-    queue = deque()
-
-    # Работаем 5 часов 50 минут
-    while time.time() - start_time < 21000:
+    while True:
         try:
-            # 1. Проверяем новые сообщения (ждем до 10 секунд)
             updates = get_updates(offset, timeout=10)
-            
             for upd in updates:
                 offset = upd["update_id"] + 1
                 save_offset(offset)
@@ -88,21 +85,43 @@ def main():
                     send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео (2D или 3D).")
                     continue
                 
-                # Добавляем в очередь и сразу отвечаем, чтобы человек не ждал
-                queue.append({"chat_id": chat_id, "idea": text})
-                send_message(chat_id, f"🎬 Принято в очередь! Ты {len(queue)}-й. Начинаю генерацию, как только освобожусь.")
-            
-            # 2. Если есть задачи в очереди и мы не заняты — берем одну
+                # Мгновенно отвечаем и кидаем в очередь
+                with queue_lock:
+                    queue.append({"chat_id": chat_id, "idea": text})
+                    pos = len(queue)
+                send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й. Начинаю генерацию, как только освобожусь.")
+        except Exception as e:
+            print(f"Ошибка в слушателе: {e}")
+            time.sleep(5)
+
+# ЭТА ФУНКЦИЯ РАБОТАЕТ В ОСНОВНОМ ПОТОКЕ (Генератор)
+def worker():
+    print("Генератор запущен...")
+    while True:
+        task = None
+        with queue_lock:
             if queue:
                 task = queue.popleft()
-                try:
-                    pipeline(task["idea"], task["chat_id"])
-                except Exception as e:
-                    send_message(task["chat_id"], f"❌ Ошибка генерации: {type(e).__name__}: {e}")
-                    
-        except Exception as e:
-            print(f"Ошибка сети: {e}")
-            time.sleep(5)
+                
+        if task:
+            try:
+                pipeline(task["idea"], task["chat_id"])
+            except Exception as e:
+                send_message(task["chat_id"], f"❌ Ошибка генерации: {type(e).__name__}: {e}")
+        else:
+            time.sleep(2) # Если очередь пуста — отдыхаем 2 секунды
+
+def main():
+    print("Бот запущен. Слушатель и генератор в работе...")
+    start_time = time.time()
+    
+    # Запускаем слушателя в фоновом потоке
+    t = threading.Thread(target=listener, daemon=True)
+    t.start()
+    
+    # Работаем 5 часов 50 минут
+    while time.time() - start_time < 21000:
+        worker() # Генератор крутится в основном потоке
 
 if __name__ == "__main__":
     main()
