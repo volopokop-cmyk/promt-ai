@@ -17,7 +17,7 @@ def _load():
             device_map="cpu",
             dtype=torch.float32,
         )
-        _model.eval()
+        _model.model.eval()
 
 def synth(text: str, out_wav: str, instruct: str | None = None):
     _load()
