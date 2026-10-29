@@ -1,6 +1,7 @@
 import asyncio
 import json
 import shutil
+import time # <-- Добавили время
 from pathlib import Path
 
 from telegram import get_updates, send_message, send_video
@@ -11,7 +12,6 @@ from watermark import inject
 STATE = Path("state/offset.json")
 WORK = Path("work")
 OUT = Path("out")
-MAX_UPDATES = 2
 
 def load_offset():
     if STATE.exists():
@@ -60,30 +60,36 @@ def pipeline(idea: str, chat_id: int):
     send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
 
 def main():
+    print("Бот запущен в режиме реального времени (до 5.5 часов)...")
+    start_time = time.time()
     offset = load_offset()
-    updates = get_updates(offset)
-    if not updates:
-        print("нет сообщений"); return
 
-    processed = 0
-    for upd in updates:
-        offset = upd["update_id"] + 1
-        msg = upd.get("message")
-        if not msg or "text" not in msg:
-            continue
-        chat_id, text = msg["chat"]["id"], msg["text"]
-        if text.startswith("/start"):
-            send_message(chat_id,
-                "Привет! Я promt bot. Пришли идею — сделаю видео (2D или 3D).")
-            continue
+    # Работаем 5 часов 50 минут (21000 секунд), чтобы успеть до 6-часового лимита GitHub
+    while time.time() - start_time < 21000:
         try:
-            pipeline(text, chat_id)
-            processed += 1
+            updates = get_updates(offset, timeout=50)
+            
+            for upd in updates:
+                offset = upd["update_id"] + 1
+                save_offset(offset) # сохраняем сразу, чтобы не потерять
+                
+                msg = upd.get("message")
+                if not msg or "text" not in msg:
+                    continue
+                chat_id, text = msg["chat"]["id"], msg["text"]
+                
+                if text.startswith("/start"):
+                    send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео (2D или 3D).")
+                    continue
+                
+                try:
+                    pipeline(text, chat_id)
+                except Exception as e:
+                    send_message(chat_id, f"❌ {type(e).__name__}: {e}")
+                    
         except Exception as e:
-            send_message(chat_id, f"❌ {type(e).__name__}: {e}")
-        if processed >= MAX_UPDATES:
-            break
-    save_offset(offset)
+            print(f"Ошибка сети: {e}")
+            time.sleep(5) # если интернет моргнул, ждем 5 сек и пробуем снова
 
 if __name__ == "__main__":
     main()
