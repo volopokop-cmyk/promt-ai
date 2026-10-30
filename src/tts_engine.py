@@ -4,8 +4,6 @@ import soundfile as sf
 from qwen_tts import Qwen3TTSModel
 
 MODEL_NAME = os.getenv("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")
-SPEAKER = os.getenv("QWEN_TTS_SPEAKER", "Vivian")
-LANGUAGE = os.getenv("QWEN_TTS_LANGUAGE", "Russian")
 
 _model = None
 
@@ -19,10 +17,15 @@ def _load():
         )
         _model.model.eval()
 
-def synth(text: str, out_wav: str, instruct: str | None = None):
+def synth(text: str, out_wav: str, instruct: str | None = None, speaker: str = "Vivian", language: str = "Russian"):
     _load()
-    kwargs = {"text": text, "language": LANGUAGE, "speaker": SPEAKER}
+    kwargs = {
+        "text": text, 
+        "language": language, 
+        "speaker": speaker
+    }
     if instruct:
         kwargs["instruct"] = instruct
+        
     wavs, sr = _model.generate_custom_voice(**kwargs)
     sf.write(out_wav, wavs[0], sr)
