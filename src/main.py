@@ -38,7 +38,23 @@ def pipeline(idea: str, chat_id: int):
     # 2. Узнаем длительность
     duration_match = re.search(r'(\d+)\s*(сек|секунд)', idea.lower())
     total_duration = int(duration_match.group(1)) if duration_match else 15
-    total_duration = max(3, min(60, total_duration)) # Ограничим от 3 до 60 секунд
+    total_duration = max(3, min(60, total_duration))
+
+    # 3. Определяем голос и язык из текста
+    idea_lower = idea.lower()
+    if "мужской" in idea_lower or "мужчина" in idea_lower or "парень" in idea_lower:
+        selected_speaker = "Ryan" # Мужской голос
+    else:
+        selected_speaker = "Vivian" # Женский голос по умолчанию
+
+    if "англ" in idea_lower or "english" in idea_lower:
+        selected_language = "English"
+    elif "китай" in idea_lower or "chinese" in idea_lower:
+        selected_language = "Chinese"
+    elif "япон" in idea_lower or "japanese" in idea_lower:
+        selected_language = "Japanese"
+    else:
+        selected_language = "Russian"
 
     send_message(chat_id, "✍️ Сценарист пишет историю…")
     script = screenwriter.run(idea)
@@ -46,21 +62,17 @@ def pipeline(idea: str, chat_id: int):
     send_message(chat_id, f"🎬 Режиссёр строит план: {script.get('title','')}")
     plan = director.run(script)
 
-    # Берем только 3 сцены и раскидываем время
     plan["scenes"] = plan["scenes"][:3]
     duration_per_scene = total_duration / len(plan["scenes"])
-    for sc in plan["scenes"]:
-        sc["duration"] = duration_per_scene
 
     send_message(chat_id, f"🎨 Художник рисует сцены ({plan['style'].upper()})…")
     scenes_html = []
     for sc in plan["scenes"]:
-        # Передаем изначальную идею художнику, чтобы он знал, ЧТО рисовать
         html = artist.run(sc, plan, original_idea=idea)
         html = inject(html, float(sc["duration"]))
         scenes_html.append((html, sc["duration"]))
 
-    send_message(chat_id, "🔊 Озвучиваю…")
+    send_message(chat_id, f"🔊 Озвучиваю ({selected_language}, {selected_speaker})…")
     audio_parts = []
     for i, sc in enumerate(plan["scenes"]):
         p = WORK / f"a_{i}.wav"
@@ -72,12 +84,12 @@ def pipeline(idea: str, chat_id: int):
             
         mood = script["scenes"][i].get("mood") if i < len(script["scenes"]) else None
         instruct = f"говори {mood}" if mood else None
-        synth(clean_text, str(p), instruct=instruct)
+        
+        synth(clean_text, str(p), instruct=instruct, speaker=selected_speaker, language=selected_language)
         audio_parts.append(p)
 
     send_message(chat_id, "🎥 Рендерю кадры…")
     from render import render_all
-    # Передаем формат в рендер (9:16 или 16:9)
     asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical))
 
     send_message(chat_id, "✂️ Монтаж…")
@@ -103,7 +115,7 @@ def listener():
                 chat_id, text = msg["chat"]["id"], msg["text"]
                 
                 if text.startswith("/start"):
-                    send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео. Укажи формат (9:16 или 16:9) и длительность (например, '10 секунд').")
+                    send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео. Укажи формат (9:16 или 16:9), длительность и голос (мужской/женский).")
                     continue
                 
                 with queue_lock:
