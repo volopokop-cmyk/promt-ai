@@ -9,7 +9,6 @@ async def render_scene(html: str, duration: float, out_dir: Path, idx: int, is_v
     f = out_dir / f"scene_{idx}.html"
     f.write_text(html, encoding="utf-8")
 
-    # Настраиваем размеры
     W, H = (720, 1280) if is_vertical else (1280, 720)
 
     async with async_playwright() as p:
