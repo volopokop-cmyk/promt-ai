@@ -5,10 +5,10 @@ POSITIONS = [
     {"top": "24px",   "right": "24px"},
     {"bottom": "24px", "right": "24px"},
     {"bottom": "24px", "left": "24px"},
-    {"bottom": "24px", "left": "50%", "transform": "translateX(-50%)"},
+    {"top": "50%", "left": "50%", "transform": "translate(-50%, -50%)"},
 ]
 
-STEP = 2.5
+STEP = 3.0
 
 CSS = """
 #wm-overlay {
@@ -16,16 +16,15 @@ CSS = """
 }
 #wm {
   position: absolute;
-  font: 600 20px/1 system-ui, Segoe UI, Roboto, sans-serif;
-  letter-spacing: 0.08em;
-  color: rgba(255,255,255,0.82);
-  text-shadow: 0 2px 10px rgba(0,0,0,0.55), 0 0 1px rgba(0,0,0,0.9);
-  padding: 8px 14px; border-radius: 999px;
-  background: rgba(0,0,0,0.28);
-  backdrop-filter: blur(6px);
   opacity: 0;
   transition: opacity .6s ease, top .8s ease, left .8s ease,
               right .8s ease, bottom .8s ease, transform .8s ease;
+}
+/* Размер твоего логотипа */
+#wm img {
+  height: 100px; 
+  width: auto;
+  filter: drop-shadow(0px 5px 10px rgba(0,0,0,0.6));
 }
 """
 
@@ -59,10 +58,13 @@ def _build_js(total_seconds: float) -> str:
 </script>
 """
 
+# ТВОЯ ПРЯМАЯ ССЫЛКА НА КАРТИНКУ (RAW)
+GITHUB_RAW_LINK = "https://raw.githubusercontent.com/volopokop-cmyk/promt-ai/main/logo.jpg"
+
 def inject(html: str, duration: float) -> str:
     overlay = (
         f"<style>{CSS}</style>"
-        f'<div id="wm-overlay"><div id="wm">promt bot</div></div>'
+        f'<div id="wm-overlay"><div id="wm"><img src="{GITHUB_RAW_LINK}" alt="Prompt AI"></div></div>'
         f"{_build_js(duration)}"
     )
     if re.search(r"</body>", html, re.I):
