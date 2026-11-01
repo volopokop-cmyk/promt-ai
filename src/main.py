@@ -57,7 +57,10 @@ def get_menu(settings):
                 {"text": f"🇬🇧 EN {'✅' if l == 'English' else ''}", "callback_data": "lang_en", "style": "success" if l == 'English' else "default"}
             ],
             [
-                {"text": "✅ Готово, я напишу идею", "callback_data": "done", "style": "primary"}
+                {"text": "🔁 Повторить видео", "callback_data": "mode_repeat", "style": "primary"}
+            ],
+            [
+                {"text": "✅ Готово, я напишу идею", "callback_data": "done", "style": "success"}
             ]
         ]
     }
@@ -66,7 +69,7 @@ def get_menu(settings):
 def progress_updater(chat_id, message_id, is_done_flag):
     percent = 0
     while percent < 99 and not is_done_flag[0]:
-        time.sleep(6) # Обновляем каждые 6 секунд
+        time.sleep(6) 
         percent += 1
         bar = "█" * (percent // 10) + "░" * (10 - percent // 10)
         text = f"⏳ Генерация видео...\n\n[{bar}] {percent}%"
@@ -109,22 +112,11 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
             clean_text = script["scenes"][i].get("narration", "") if i < len(script["scenes"]) else sc.get("text", "")
             
             if not clean_text.strip():
-                os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} {p}")
+                os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t 1 {p}")
                 audio_parts.append(p)
                 continue
                 
             synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
-            
-            # Удлиняем аудио тишиной, если оно короче сцены
-            try:
-                duration_cmd = f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {p}"
-                audio_len = float(os.popen(duration_cmd).read().strip())
-                if audio_len < sc["duration"]:
-                    diff = sc["duration"] - audio_len
-                    os.system(f"ffmpeg -y -i {p} -af 'apad=pad_dur={diff}' {p}.tmp && mv {p}.tmp {p}")
-            except Exception as e:
-                print(f"Ошибка проверки длины аудио: {e}")
-                
             audio_parts.append(p)
 
         from render import render_all
@@ -160,7 +152,7 @@ def listener():
                     answer_callback(cb_id)
                     
                     if chat_id not in user_settings:
-                        user_settings[chat_id] = {"format": "9:16", "duration": 10, "speaker": "Vivian", "language": "Russian", "ready": False}
+                        user_settings[chat_id] = {"format": "9:16", "duration": 10, "speaker": "Vivian", "language": "Russian", "ready": False, "mode": "text"}
                     
                     settings = user_settings[chat_id]
                     
@@ -172,8 +164,13 @@ def listener():
                         settings["speaker"] = "Ryan" if "male" in data else "Vivian"
                     elif data.startswith("lang_"):
                         settings["language"] = "Russian" if "ru" in data else "English"
+                    elif data == "mode_repeat":
+                        settings["mode"] = "repeat"
+                        send_message(chat_id, "📹 Отправь видео и напиши в подписи, что на нём происходит (например: 'толстый кот машет лапой').")
+                        continue
                     elif data == "done":
                         settings["ready"] = True
+                        settings["mode"] = "text"
                         send_message(chat_id, "✅ Настройки сохранены! Теперь напиши идею для видео.")
                         continue
                         
@@ -182,21 +179,46 @@ def listener():
                     continue
                 
                 msg = upd.get("message")
-                if not msg or "text" not in msg:
+                if not msg:
+                    continue
+                
+                chat_id = msg["chat"]["id"]
+                username = msg.get("from", {}).get("username", "")
+                settings = user_settings.get(chat_id, {})
+
+                # Обработка видео
+                if "video" in msg:
+                    caption = msg.get("caption", "")
+                    if not caption:
+                        send_message(chat_id, "⚠️ Пожалуйста, добавь к видео текстовое описание (что на нем происходит), чтобы я мог это анимировать.")
+                        continue
+                    
+                    if not settings or settings.get("mode") != "repeat":
+                         send_message(chat_id, "⚠️ Сначала нажми 'Повторить видео' в меню (/start).")
+                         continue
+                         
+                    # Запускаем генерацию по описанию из подписи
+                    settings["ready"] = False
+                    settings["mode"] = "text"
+                    with queue_lock:
+                        queue.append({"chat_id": chat_id, "idea": caption, "username": username, "settings": settings.copy()})
+                        pos = len(queue)
+                    send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й. Начинаю генерацию, как только освобожусь.")
+                    continue
+
+                # Обработка текста
+                if "text" not in msg:
                     continue
                     
-                chat_id = msg["chat"]["id"]
                 text = msg["text"]
-                username = msg.get("from", {}).get("username", "")
                 
                 if text.startswith("/start"):
                     if chat_id not in user_settings:
-                        user_settings[chat_id] = {"format": "9:16", "duration": 10, "speaker": "Vivian", "language": "Russian", "ready": False}
+                        user_settings[chat_id] = {"format": "9:16", "duration": 10, "speaker": "Vivian", "language": "Russian", "ready": False, "mode": "text"}
                     menu = get_menu(user_settings[chat_id])
                     send_message(chat_id, "⚙️ Настрой генерацию видео с помощью кнопок ниже, а затем нажми 'Готово' и напиши идею.", reply_markup=menu)
                     continue
                 
-                settings = user_settings.get(chat_id)
                 if not settings or not settings.get("ready"):
                     send_message(chat_id, "⚠️ Сначала выбери настройки в меню (нажми /start, если его нет).")
                     continue
