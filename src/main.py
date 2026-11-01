@@ -4,6 +4,8 @@ import shutil
 import time
 import threading
 import re
+import os
+import requests
 from pathlib import Path
 from collections import deque
 
@@ -61,13 +63,10 @@ def get_menu(settings):
     }
     return keyboard
 
-# Функция для обновления процентов в фоне
 def progress_updater(chat_id, message_id, is_done_flag):
     percent = 0
-    # Примерное время генерации (15 минут = 900 секунд)
-    # Шагаем по 1% каждые 9 секунд
-    while percent < 100 and not is_done_flag[0]:
-        time.sleep(9) 
+    while percent < 99 and not is_done_flag[0]:
+        time.sleep(6) # Обновляем каждые 6 секунд
         percent += 1
         bar = "█" * (percent // 10) + "░" * (10 - percent // 10)
         text = f"⏳ Генерация видео...\n\n[{bar}] {percent}%"
@@ -85,7 +84,6 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
     selected_speaker = settings.get("speaker", "Vivian")
     selected_language = settings.get("language", "Russian")
 
-    # Отправляем сообщение с 0% и запоминаем его ID
     msg = requests.post(f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage", json={"chat_id": chat_id, "text": "⏳ Генерация видео...\n\n[░░░░░░░░░░] 0%"}).json()
     message_id = msg["result"]["message_id"]
     
@@ -109,10 +107,24 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
         for i, sc in enumerate(plan["scenes"]):
             p = WORK / f"a_{i}.wav"
             clean_text = script["scenes"][i].get("narration", "") if i < len(script["scenes"]) else sc.get("text", "")
+            
             if not clean_text.strip():
-                audio_parts.append(None)
+                os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} {p}")
+                audio_parts.append(p)
                 continue
+                
             synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
+            
+            # Удлиняем аудио тишиной, если оно короче сцены
+            try:
+                duration_cmd = f"ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {p}"
+                audio_len = float(os.popen(duration_cmd).read().strip())
+                if audio_len < sc["duration"]:
+                    diff = sc["duration"] - audio_len
+                    os.system(f"ffmpeg -y -i {p} -af 'apad=pad_dur={diff}' {p}.tmp && mv {p}.tmp {p}")
+            except Exception as e:
+                print(f"Ошибка проверки длины аудио: {e}")
+                
             audio_parts.append(p)
 
         from render import render_all
@@ -121,7 +133,7 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
         mp4 = OUT / "video.mp4"
         editor.run(WORK / "frames", audio_parts, mp4)
 
-        is_done[0] = True # Останавливаем прогресс
+        is_done[0] = True 
         edit_message_text(chat_id, message_id, "✅ Видео готово! Отправляю...")
         send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
         
