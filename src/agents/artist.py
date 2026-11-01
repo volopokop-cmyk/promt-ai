@@ -68,16 +68,18 @@ TEMPLATES = {
           const time = clock.getElapsedTime();
           
           if (anim === "jump") {
-            root.position.y = Math.abs(Math.sin(time * 3)) * 0.5; // Прыжок
-            armL.rotation.z = Math.sin(time * 3) * 0.5;
-            armR.rotation.z = -Math.sin(time * 3) * 0.5;
+            // МЕДЛЕННЫЙ ПРЫЖОК (1.5 вместо 3)
+            root.position.y = Math.abs(Math.sin(time * 1.5)) * 0.3; 
+            // Плавное разведение рук в стороны
+            armL.rotation.z = Math.sin(time * 1.5) * 0.4;
+            armR.rotation.z = -Math.sin(time * 1.5) * 0.4;
           } else if (anim === "wave") {
-            armR.rotation.z = Math.sin(time * 6) * 0.5 - 1.5; // Машет
+            armR.rotation.z = Math.sin(time * 6) * 0.5 - 1.5; 
           } else if (anim === "walk") {
             legL.rotation.x = Math.sin(time * 5) * 0.4;
             legR.rotation.x = -Math.sin(time * 5) * 0.4;
           } else {
-            chest.position.y = 0.25 + Math.sin(time * 2) * 0.01; // Дышит
+            chest.position.y = 0.25 + Math.sin(time * 2) * 0.01;
           }
 
           renderer.render(scene, camera);
@@ -122,7 +124,7 @@ def run(scene: dict, plan: dict, original_idea: str = "") -> str:
     user = f"Текст: {scene.get('text', '')}. Запрос: {original_idea}"
     response = ask(SYSTEM_PROMPT, user, max_new_tokens=50).strip()
     
-    template_key = "3d_person" # По умолчанию 3D
+    template_key = "3d_person"
     anim = "idle"
     
     try:
