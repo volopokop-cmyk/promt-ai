@@ -1,11 +1,10 @@
 import re
 
 POSITIONS = [
-    {"top": "24px",   "left": "24px"},
-    {"top": "24px",   "right": "24px"},
-    {"bottom": "24px", "right": "24px"},
-    {"bottom": "24px", "left": "24px"},
-    {"top": "50%", "left": "50%", "transform": "translate(-50%, -50%)"},
+    {"top": "30px", "left": "30px"},
+    {"top": "30px", "right": "30px"},
+    {"bottom": "30px", "right": "30px"},
+    {"bottom": "30px", "left": "30px"}
 ]
 
 STEP = 3.0
@@ -16,15 +15,32 @@ CSS = """
 }
 #wm {
   position: absolute;
+  display: flex;
+  flex-direction: column; 
+  align-items: center;    
   opacity: 0;
-  transition: opacity .6s ease, top .8s ease, left .8s ease,
-              right .8s ease, bottom .8s ease, transform .8s ease;
+  transition: opacity .6s ease, top .8s ease, left .8s ease, right .8s ease, bottom .8s ease;
 }
-/* Размер твоего логотипа */
 #wm img {
-  height: 100px; 
+  height: 80px; 
   width: auto;
-  filter: drop-shadow(0px 5px 10px rgba(0,0,0,0.6));
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.8));
+  display: block;
+}
+.wm-text {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 800;
+  font-family: system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  line-height: 1;
+  margin-top: -22px;        /* Текст вплотную к картинке */
+  text-shadow: 
+    -1px -1px 0 #000,  
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+     0px  2px 5px rgba(0,0,0,0.9);
 }
 """
 
@@ -42,7 +58,6 @@ def _build_js(total_seconds: float) -> str:
     el.style.left = p.left || 'auto';
     el.style.right = p.right || 'auto';
     el.style.bottom = p.bottom || 'auto';
-    el.style.transform = p.transform || 'none';
   }}
   function tick() {{
     el.style.opacity = '0';
@@ -58,15 +73,20 @@ def _build_js(total_seconds: float) -> str:
 </script>
 """
 
-# ТВОЯ ПРЯМАЯ ССЫЛКА НА КАРТИНКУ (RAW)
 GITHUB_RAW_LINK = "https://raw.githubusercontent.com/volopokop-cmyk/promt-ai/main/logo.jpg"
 
-def inject(html: str, duration: float) -> str:
+def inject(html: str, duration: float, username: str = "") -> str:
+    display_name = f"@{username.lstrip('@')}" if username else ""
+    
     overlay = (
         f"<style>{CSS}</style>"
-        f'<div id="wm-overlay"><div id="wm"><img src="{GITHUB_RAW_LINK}" alt="Prompt AI"></div></div>'
+        f'<div id="wm-overlay"><div id="wm">'
+        f'<img src="{GITHUB_RAW_LINK}" alt="Logo">'
+        f'<span class="wm-text">{display_name}</span>'
+        f'</div></div>'
         f"{_build_js(duration)}"
     )
+    
     if re.search(r"</body>", html, re.I):
         return re.sub(r"</body>", overlay + "</body>", html, count=1, flags=re.I)
     return html + overlay
