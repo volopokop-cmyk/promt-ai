@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from collections import deque
 
-from telegram import get_updates, send_message, send_video
+from telegram import get_updates, send_message, send_video, answer_callback
 from agents import screenwriter, director, artist, editor
 from tts_engine import synth
 from watermark import inject
@@ -18,6 +18,7 @@ OUT = Path("out")
 
 queue = deque()
 queue_lock = threading.Lock()
+user_settings = {} # Здесь храним выбор пользователей
 
 def load_offset():
     if STATE.exists():
@@ -28,33 +29,28 @@ def save_offset(offset):
     STATE.parent.mkdir(exist_ok=True)
     STATE.write_text(json.dumps({"offset": offset}))
 
-def pipeline(idea: str, chat_id: int, username: str = ""):
+# Функция для отправки меню
+def send_menu(chat_id):
+    keyboard = {
+        "inline_keyboard": [
+            [{"text": "📱 9:16 (Shorts)", "callback_data": "fmt_9_16"}, {"text": "🖥 16:9 (YouTube)", "callback_data": "fmt_16_9"}],
+            [{"text": "⏱ 5 сек", "callback_data": "dur_5"}, {"text": "⏱ 10 сек", "callback_data": "dur_10"}, {"text": "⏱ 15 сек", "callback_data": "dur_15"}],
+            [{"text": "🗣 Мужской", "callback_data": "voice_male"}, {"text": "🗣 Женский", "callback_data": "voice_female"}],
+            [{"text": "🇷🇺 RU", "callback_data": "lang_ru"}, {"text": "🇬🇧 EN", "callback_data": "lang_en"}],
+            [{"text": "✅ Готово, я напишу идею", "callback_data": "done"}]
+        ]
+    }
+    send_message(chat_id, "⚙️ Настрой генерацию видео с помощью кнопок ниже, а затем нажми 'Готово' и напиши идею.", reply_markup=keyboard)
+
+def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
     if WORK.exists(): shutil.rmtree(WORK)
     WORK.mkdir(); OUT.mkdir(exist_ok=True)
 
-    # 1. Узнаем формат (9:16 или 16:9)
-    is_vertical = "9:16" in idea or "вертикальн" in idea.lower()
+    is_vertical = settings.get("format", "9:16") == "9:16"
+    total_duration = settings.get("duration", 10)
     
-    # 2. Узнаем длительность
-    duration_match = re.search(r'(\d+)\s*(сек|секунд)', idea.lower())
-    total_duration = int(duration_match.group(1)) if duration_match else 15
-    total_duration = max(3, min(60, total_duration))
-
-    # 3. Определяем голос и язык из текста
-    idea_lower = idea.lower()
-    if "мужской" in idea_lower or "мужчина" in idea_lower or "парень" in idea_lower:
-        selected_speaker = "Ryan" # Мужской голос
-    else:
-        selected_speaker = "Vivian" # Женский голос по умолчанию
-
-    if "англ" in idea_lower or "english" in idea_lower:
-        selected_language = "English"
-    elif "китай" in idea_lower or "chinese" in idea_lower:
-        selected_language = "Chinese"
-    elif "япон" in idea_lower or "japanese" in idea_lower:
-        selected_language = "Japanese"
-    else:
-        selected_language = "Russian"
+    selected_speaker = settings.get("speaker", "Vivian")
+    selected_language = settings.get("language", "Russian")
 
     send_message(chat_id, "✍️ Сценарист пишет историю…")
     script = screenwriter.run(idea)
@@ -69,7 +65,6 @@ def pipeline(idea: str, chat_id: int, username: str = ""):
     scenes_html = []
     for sc in plan["scenes"]:
         html = artist.run(sc, plan, original_idea=idea)
-        # Передаем username в вотермарку
         html = inject(html, float(sc["duration"]), username=username)
         scenes_html.append((html, sc["duration"]))
 
@@ -100,7 +95,6 @@ def pipeline(idea: str, chat_id: int, username: str = ""):
     send_message(chat_id, "📤 Отправляю…")
     send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
 
-
 def listener():
     offset = load_offset()
     while True:
@@ -110,23 +104,59 @@ def listener():
                 offset = upd["update_id"] + 1
                 save_offset(offset)
                 
+                # Ловим нажатия на кнопки
+                if "callback_query" in upd:
+                    cb = upd["callback_query"]
+                    cb_id = cb["id"]
+                    chat_id = cb["message"]["chat"]["id"]
+                    data = cb["data"]
+                    
+                    answer_callback(cb_id) # Убираем часики на кнопке
+                    
+                    if chat_id not in user_settings:
+                        user_settings[chat_id] = {"format": "9:16", "duration": 10, "speaker": "Vivian", "language": "Russian", "ready": False}
+                        
+                    if data.startswith("fmt_"):
+                        user_settings[chat_id]["format"] = "9:16" if "9_16" in data else "16:9"
+                    elif data.startswith("dur_"):
+                        user_settings[chat_id]["duration"] = int(data.split("_")[1])
+                    elif data.startswith("voice_"):
+                        user_settings[chat_id]["speaker"] = "Ryan" if "male" in data else "Vivian"
+                    elif data.startswith("lang_"):
+                        user_settings[chat_id]["language"] = "Russian" if "ru" in data else "English"
+                    elif data == "done":
+                        user_settings[chat_id]["ready"] = True
+                        send_message(chat_id, "✅ Настройки сохранены! Теперь напиши идею для видео.")
+                        
+                    continue
+                
+                # Ловим обычные сообщения
                 msg = upd.get("message")
                 if not msg or "text" not in msg:
                     continue
                     
                 chat_id = msg["chat"]["id"]
                 text = msg["text"]
-                # Получаем никнейм пользователя
                 username = msg.get("from", {}).get("username", "")
                 
                 if text.startswith("/start"):
-                    send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео. Укажи формат (9:16 или 16:9), длительность и голос (мужской/женский).")
+                    send_menu(chat_id)
                     continue
                 
+                # Проверяем, готов ли пользователь
+                settings = user_settings.get(chat_id)
+                if not settings or not settings.get("ready"):
+                    send_message(chat_id, "⚠️ Сначала выбери настройки в меню (нажми /start, если его нет).")
+                    continue
+                
+                # Сбрасываем готовность для следующего видео
+                settings["ready"] = False
+                
                 with queue_lock:
-                    queue.append({"chat_id": chat_id, "idea": text, "username": username})
+                    queue.append({"chat_id": chat_id, "idea": text, "username": username, "settings": settings.copy()})
                     pos = len(queue)
                 send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й. Начинаю генерацию, как только освобожусь.")
+                
         except Exception as e:
             print(f"Ошибка в слушателе: {e}")
             time.sleep(5)
@@ -141,7 +171,7 @@ def worker():
                 
         if task:
             try:
-                pipeline(task["idea"], task["chat_id"], task["username"])
+                pipeline(task["idea"], task["chat_id"], task["settings"], task["username"])
             except Exception as e:
                 send_message(task["chat_id"], f"❌ Ошибка генерации: {type(e).__name__}: {e}")
         else:
