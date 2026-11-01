@@ -1,109 +1,109 @@
 from qwen_llm import ask
 
+# Шаблон с анимированным человечком
 BASE_2D = """
 <!doctype html>
 <html>
 <head>
 <style>
-  body { margin: 0; overflow: hidden; background: linear-gradient(135deg, {c0}, {c0}); height: 100vh; display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; }
-  .scene { position: relative; width: 100%; height: 100%; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 50px; }
-  .text { position: absolute; top: 15%; width: 100%; text-align: center; font-size: 64px; font-weight: bold; color: {c2}; text-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 10; animation: fadeIn 1s ease-out forwards; opacity: 0; }
-  .character { position: relative; animation: float 4s infinite alternate ease-in-out; }
-  @keyframes fadeIn { to { opacity: 1; } }
-  @keyframes float { 0% { transform: translateY(0px); } 100% { transform: translateY(-15px); } }
+  body { margin: 0; overflow: hidden; background: {c0}; height: 100vh; display: flex; align-items: center; justify-content: center; font-family: system-ui, sans-serif; }
+  
+  .text { position: absolute; top: 50px; width: 100%; text-align: center; font-size: 56px; font-weight: bold; color: {c2}; text-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 10; }
+  
+  /* Контейнер для персонажа */
+  .character { position: relative; width: 200px; height: 300px; }
+  
+  /* Голова */
+  .head { position: absolute; top: 0; left: 50px; width: 100px; height: 100px; background: {c1}; border-radius: 50%; }
+  
+  /* Туловище */
+  .body { position: absolute; top: 100px; left: 75px; width: 50px; height: 120px; background: {c1}; border-radius: 20px; }
+  
+  /* Руки и ноги */
+  .arm-left { position: absolute; top: 110px; left: 40px; width: 30px; height: 100px; background: {c1}; border-radius: 15px; transform-origin: top center; }
+  .arm-right { position: absolute; top: 110px; left: 130px; width: 30px; height: 100px; background: {c1}; border-radius: 15px; transform-origin: top center; }
+  
+  .leg-left { position: absolute; top: 210px; left: 60px; width: 30px; height: 90px; background: {c1}; border-radius: 15px; transform-origin: top center; }
+  .leg-right { position: absolute; top: 210px; left: 110px; width: 30px; height: 90px; background: {c1}; border-radius: 15px; transform-origin: top center; }
+
+  /* АНИМАЦИИ (нейросеть будет их включать) */
+  @keyframes walk {
+    0%, 100% { transform: rotate(-20deg); }
+    50% { transform: rotate(20deg); }
+  }
+  @keyframes wave {
+    0%, 100% { transform: rotate(-30deg); }
+    50% { transform: rotate(30deg); }
+  }
+  @keyframes jump {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-50px); }
+  }
 </style>
 </head>
 <body>
-  <div class="scene">
-    <div class="text">{text}</div>
-    <div class="character">
-      <svg width="400" height="500" viewBox="0 0 400 500" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="200" cy="100" r="60" fill="{c1}" />
-        <rect x="180" y="150" width="40" height="30" fill="{c1}" />
-        <path d="M 120 180 C 120 180, 100 350, 100 350 L 300 350 C 300 350, 280 180, 280 180 C 250 190, 150 190, 120 180 Z" fill="{c1}" />
-        <path d="M 120 200 C 80 250, 50 320, 80 360" stroke="{c1}" stroke-width="35" stroke-linecap="round" />
-        <path d="M 280 200 C 320 250, 350 320, 320 360" stroke="{c1}" stroke-width="35" stroke-linecap="round" />
-        <rect x="50" y="380" width="300" height="20" rx="10" fill="{c1}" opacity="0.8"/>
-        <rect x="290" y="330" width="30" height="50" rx="5" fill="{c2}" />
-        <path d="M 320 340 C 340 340, 340 370, 320 370" stroke="{c2}" stroke-width="8" stroke-linecap="round" fill="none" />
-        <path d="M 300 310 C 290 290, 310 280, 300 260" stroke="{c2}" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.6">
-          <animate attributeName="opacity" values="0.6; 0.1; 0.6" dur="2s" repeatCount="indefinite" />
-        </path>
-      </svg>
-    </div>
+  <div class="text">{text}</div>
+  
+  <div class="character">
+    <div class="head"></div>
+    <div class="body"></div>
+    <!-- Нейросеть добавит класс анимации сюда: class="arm-left wave" -->
+    <div class="arm-left {anim_arm_left}"></div>
+    <div class="arm-right {anim_arm_right}"></div>
+    <div class="leg-left {anim_leg_left}"></div>
+    <div class="leg-right {anim_leg_right}"></div>
   </div>
 </body>
 </html>
 """
 
-BASE_3D = """
-<!doctype html>
-<html>
-<head>
-<style>
-  body { margin: 0; overflow: hidden; background: {c0}; }
-  #text { position: absolute; top: 50px; width: 100%; text-align: center; font-size: 64px; font-weight: bold; color: {c2}; text-shadow: 0 4px 20px rgba(0,0,0,0.8); z-index: 10; animation: fadeIn 2s ease-out forwards; }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-</style>
-<script type="importmap">
-  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
-</script>
-</head>
-<body>
-  <div id="text">{text}</div>
-  <script type="module">
-    import * as THREE from 'three';
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
-    const colorMat = new THREE.MeshStandardMaterial({ color: {c1}, roughness: 0.5 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 3, 32), colorMat); body.position.y = 0; scene.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.8, 32, 32), colorMat); head.position.y = 2.2; scene.add(head);
-    const limbGeo = new THREE.CylinderGeometry(0.25, 0.25, 2, 16);
-    const armL = new THREE.Mesh(limbGeo, colorMat); armL.position.set(-1.2, 0.5, 0); armL.rotation.z = 0.5; scene.add(armL);
-    const armR = new THREE.Mesh(limbGeo, colorMat); armR.position.set(1.2, 0.5, 0); armR.rotation.z = -0.5; scene.add(armR);
-    const legL = new THREE.Mesh(limbGeo, colorMat); legL.position.set(-0.5, -2.5, 0); scene.add(legL);
-    const legR = new THREE.Mesh(limbGeo, colorMat); legR.position.set(0.5, -2.5, 0); scene.add(legR);
-    const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(5, 5, 5); scene.add(light);
-    scene.add(new THREE.AmbientLight(0x404040, 2));
-    camera.position.set(0, 0, 10);
-    function animate() { requestAnimationFrame(animate); scene.rotation.y = Math.sin(Date.now() * 0.001) * 0.2; renderer.render(scene, camera); }
-    animate();
-  </script>
-</body>
-</html>
-"""
+SYSTEM_PROMPT = """Ты — аниматор. Твоя задача — взять шаблон и добавить в него цвета и анимации, чтобы персонаж двигался.
 
-SYSTEM_PROMPT = """Ты — умный ассистент-художник. Твоя задача — взять готовый HTML-шаблон и заменить в нём переменные на нужные цвета и текст.
+Доступные анимации:
+- "walk" (ходьба - для ног)
+- "wave" (махание - для рук)
+- "jump" (прыжок - для всего тела)
+
 Правила:
-1. Замени {c0} на palette[0] (фон).
-2. Замени {c1} на palette[1] (цвет человека/объектов).
-3. Замени {c2} на palette[2] (цвет текста и деталей).
-4. Замени {text} на текст из сцены (поле "text").
-5. Верни ТОЛЬКО готовый HTML-код без markdown.
+1. Замени {c0} на palette[0].
+2. Замени {c1} на palette[1].
+3. Замени {c2} на palette[2].
+4. Замени {text} на текст.
+5. Выбери анимацию для рук и ног в зависимости от текста:
+   - Если текст про ходьбу/шаги: {anim_leg_left} = "walk", {anim_leg_right} = "walk"
+   - Если текст про махание/привет: {anim_arm_left} = "wave" или {anim_arm_right} = "wave"
+   - Если текст про прыжок: вместо <div class="character"> сделай <div class="character jump">
+   - Если ничего не подходит, оставь пустые строки.
+6. Верни ТОЛЬКО готовый HTML.
 
-Вот шаблон:
+Шаблон:
 {template}
 """
 
 def run(scene: dict, plan: dict, original_idea: str = "") -> str:
-    template = BASE_3D if plan.get("style") == "3d" else BASE_2D
-    system = SYSTEM_PROMPT.replace("{template}", template)
-    user = f"Запрос пользователя: {original_idea}\nСцена: {scene}\nПалитра: {plan['palette']}"
+    template = BASE_2D
     
-    html = ask(system, user, max_new_tokens=2048)
+    # Подставляем базовые цвета на случай, если нейросеть ошибется
+    c0 = plan["palette"][0] if len(plan["palette"]) > 0 else "#1a1a2e"
+    c1 = plan["palette"][1] if len(plan["palette"]) > 1 else "#e94560"
+    c2 = plan["palette"][2] if len(plan["palette"]) > 2 else "#ffffff"
     
-    if "```" in html:
-        html = html.split("```")[1]
-        if html.startswith("html"): html = html[4:]
-    html = html.strip()
+    html = template.replace("{c0}", c0).replace("{c1}", c1).replace("{c2}", c2).replace("{text}", scene.get("text", ""))
     
-    if "<!doctype" not in html.lower() or len(html) < 100:
-        c0 = plan["palette"][0] if len(plan["palette"]) > 0 else "#1a1a2e"
-        c1 = plan["palette"][1] if len(plan["palette"]) > 1 else "#e94560"
-        c2 = plan["palette"][2] if len(plan["palette"]) > 2 else "#ffffff"
-        html = template.replace("{c0}", c0).replace("{c1}", c1).replace("{c2}", c2).replace("{text}", scene.get("text", ""))
+    # Просим нейросеть расставить анимации
+    system = SYSTEM_PROMPT.replace("{template}", html)
+    user = f"Текст сцены: {scene.get('text', '')}. Пользователь просит: {original_idea}"
+    
+    result = ask(system, user, max_new_tokens=2048)
+    
+    if "```" in result:
+        result = result.split("```")[1]
+        if result.startswith("html"): result = result[4:]
+    result = result.strip()
+    
+    # Если нейросеть вернула мусор (не HTML), возвращаем простой шаблон
+    if "<!doctype" not in result.lower():
+        # По умолчанию машем руками
+        result = html.replace("{anim_arm_left}", "wave").replace("{anim_arm_right}", "").replace("{anim_leg_left}", "").replace("{anim_leg_right}", "")
         
-    return html
+    return result
