@@ -28,7 +28,7 @@ def save_offset(offset):
     STATE.parent.mkdir(exist_ok=True)
     STATE.write_text(json.dumps({"offset": offset}))
 
-def pipeline(idea: str, chat_id: int):
+def pipeline(idea: str, chat_id: int, username: str = ""):
     if WORK.exists(): shutil.rmtree(WORK)
     WORK.mkdir(); OUT.mkdir(exist_ok=True)
 
@@ -69,7 +69,8 @@ def pipeline(idea: str, chat_id: int):
     scenes_html = []
     for sc in plan["scenes"]:
         html = artist.run(sc, plan, original_idea=idea)
-        html = inject(html, float(sc["duration"]))
+        # Передаем username в вотермарку
+        html = inject(html, float(sc["duration"]), username=username)
         scenes_html.append((html, sc["duration"]))
 
     send_message(chat_id, f"🔊 Озвучиваю ({selected_language}, {selected_speaker})…")
@@ -99,6 +100,7 @@ def pipeline(idea: str, chat_id: int):
     send_message(chat_id, "📤 Отправляю…")
     send_video(chat_id, str(mp4), caption=script.get("title", idea)[:200])
 
+
 def listener():
     offset = load_offset()
     while True:
@@ -112,14 +114,17 @@ def listener():
                 if not msg or "text" not in msg:
                     continue
                     
-                chat_id, text = msg["chat"]["id"], msg["text"]
+                chat_id = msg["chat"]["id"]
+                text = msg["text"]
+                # Получаем никнейм пользователя
+                username = msg.get("from", {}).get("username", "")
                 
                 if text.startswith("/start"):
                     send_message(chat_id, "Привет! Я prompt bot. Пришли идею — сделаю видео. Укажи формат (9:16 или 16:9), длительность и голос (мужской/женский).")
                     continue
                 
                 with queue_lock:
-                    queue.append({"chat_id": chat_id, "idea": text})
+                    queue.append({"chat_id": chat_id, "idea": text, "username": username})
                     pos = len(queue)
                 send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й. Начинаю генерацию, как только освобожусь.")
         except Exception as e:
@@ -136,7 +141,7 @@ def worker():
                 
         if task:
             try:
-                pipeline(task["idea"], task["chat_id"])
+                pipeline(task["idea"], task["chat_id"], task["username"])
             except Exception as e:
                 send_message(task["chat_id"], f"❌ Ошибка генерации: {type(e).__name__}: {e}")
         else:
