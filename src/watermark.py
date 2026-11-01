@@ -1,16 +1,13 @@
 import re
 
 CSS = """
-#wm-overlay {
-  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-}
+body { background: transparent; overflow: hidden; margin: 0; }
 #wm {
   position: absolute;
   display: flex;
-  flex-direction: column; 
-  align-items: center;    
+  flex-direction: column;
+  align-items: center;
   opacity: 0;
-  /* Плавное появление и перемещение */
   transition: opacity 0.8s ease, top 0.8s ease, left 0.8s ease, right 0.8s ease, bottom 0.8s ease;
 }
 #wm img {
@@ -37,17 +34,17 @@ CSS = """
 """
 
 def _build_js(total_seconds: float) -> str:
-    # Позиции для полета (каждые 3 секунды)
     steps = max(1, int(total_seconds / 3.0))
+    # Позиции для полета: верх-лево, верх-право, низ-право, низ-лево, центр
     positions = [
         {"top": "30px", "left": "30px"},
         {"top": "30px", "right": "30px"},
         {"bottom": "30px", "right": "30px"},
-        {"bottom": "30px", "left": "30px"}
+        {"bottom": "30px", "left": "30px"},
+        {"top": "50%", "left": "50%", "transform": "translate(-50%, -50%)"}
     ]
     seq = [positions[i % len(positions)] for i in range(steps + 1)]
     
-    # Генерируем уникальный ID для таймера, чтобы он не конфликтовал
     return f"""
 <script>
 (function() {{
@@ -60,13 +57,11 @@ def _build_js(total_seconds: float) -> str:
     el.style.left = p.left || 'auto';
     el.style.right = p.right || 'auto';
     el.style.bottom = p.bottom || 'auto';
+    el.style.transform = p.transform || 'none';
   }}
   
   function tick() {{
-    // Плавно прячем
     el.style.opacity = '0';
-    
-    // Ждем, пока она исчезнет (0.8 сек, как в CSS transition)
     setTimeout(() => {{
       apply(seq[i % seq.length]); 
       i++;
@@ -74,14 +69,12 @@ def _build_js(total_seconds: float) -> str:
     }}, 800);
   }}
   
-  // Первый показ (через 2 секунды, чтобы Three.js успел загрузиться)
   setTimeout(() => {{
     apply(seq[0]); 
     i = 1;
     el.style.opacity = '1';
-  }}, 2000);
+  }}, 2000); // Ждем 2 секунды, чтобы видео успело прогрузиться
   
-  // Запускаем цикл полета (каждые 3 секунды)
   setInterval(tick, 3000);
 }})();
 </script>
@@ -92,15 +85,26 @@ GITHUB_RAW_LINK = "https://raw.githubusercontent.com/volopokop-cmyk/promt-ai/mai
 def inject(html: str, duration: float, username: str = "") -> str:
     display_name = f"@{username.lstrip('@')}" if username else ""
     
-    overlay = (
-        f"<style>{CSS}</style>"
-        f'<div id="wm-overlay"><div id="wm">'
-        f'<img src="{GITHUB_RAW_LINK}" alt="Logo">'
-        f'<span class="wm-text">{display_name}</span>'
-        f'</div></div>'
-        f"{_build_js(duration)}"
-    )
+    # Мы не добавляем вотермарку в HTML, мы создаем отдельный HTML-файл для рендера
+    wm_html = f"""
+<!doctype html>
+<html>
+<head>
+<style>{CSS}</style>
+</head>
+<body>
+  <div id="wm">
+    <img src="{GITHUB_RAW_LINK}" alt="Logo">
+    <span class="wm-text">{display_name}</span>
+  </div>
+  {_build_js(duration)}
+</body>
+</html>
+"""
+    # Сохраняем этот HTML во временный файл, чтобы потом отрендерить его отдельно
+    from pathlib import Path
+    wm_path = Path("work/watermark.html")
+    wm_path.parent.mkdir(exist_ok=True)
+    wm_path.write_text(wm_html, encoding="utf-8")
     
-    if re.search(r"</body>", html, re.I):
-        return re.sub(r"</body>", overlay + "</body>", html, count=1, flags=re.I)
-    return html + overlay
+    return html # Возвращаем оригинальный HTML сцены без вотермарки
