@@ -1,14 +1,5 @@
 import re
 
-POSITIONS = [
-    {"top": "30px", "left": "30px"},
-    {"top": "30px", "right": "30px"},
-    {"bottom": "30px", "right": "30px"},
-    {"bottom": "30px", "left": "30px"}
-]
-
-STEP = 3.0
-
 CSS = """
 #wm-overlay {
   position: fixed; inset: 0; pointer-events: none; z-index: 9999;
@@ -16,10 +7,10 @@ CSS = """
 #wm {
   position: absolute;
   display: flex;
-  flex-direction: column; 
-  align-items: center;    
+  flex-direction: row;    
+  align-items: flex-end; 
   opacity: 0;
-  transition: opacity .6s ease, top .8s ease, left .8s ease, right .8s ease, bottom .8s ease;
+  transition: opacity 0.6s ease, top 0.8s ease, left 0.8s ease, right 0.8s ease, bottom 0.8s ease;
 }
 #wm img {
   height: 80px; 
@@ -29,12 +20,13 @@ CSS = """
 }
 .wm-text {
   color: #ffffff;
-  font-size: 18px;
-  font-weight: 800;
+  font-size: 18px;        
+  font-weight: 800; 
   font-family: system-ui, -apple-system, sans-serif;
   white-space: nowrap;
   line-height: 1;
-  margin-top: -22px;        /* Текст вплотную к картинке */
+  margin-left: 5px;       
+  margin-bottom: 20px;    
   text-shadow: 
     -1px -1px 0 #000,  
      1px -1px 0 #000,
@@ -45,8 +37,15 @@ CSS = """
 """
 
 def _build_js(total_seconds: float) -> str:
-    steps = max(1, int(total_seconds / STEP))
-    seq = [POSITIONS[i % len(POSITIONS)] for i in range(steps)]
+    steps = max(1, int(total_seconds / 3.0))
+    positions = [
+        {"top": "30px", "left": "30px"},
+        {"top": "30px", "right": "30px"},
+        {"bottom": "30px", "right": "30px"},
+        {"bottom": "30px", "left": "30px"}
+    ]
+    seq = [positions[i % len(positions)] for i in range(steps + 2)]
+    
     return f"""
 <script>
 (function() {{
@@ -62,13 +61,14 @@ def _build_js(total_seconds: float) -> str:
   function tick() {{
     el.style.opacity = '0';
     setTimeout(() => {{
-      apply(seq[i % seq.length]); i++;
+      apply(seq[i % seq.length]); 
+      i++;
       el.style.opacity = '1';
     }}, 600);
   }}
   apply(seq[0]); i = 1;
   setTimeout(() => {{ el.style.opacity = '1'; }}, 300);
-  setInterval(tick, {int(STEP * 1000)});
+  setInterval(tick, 3000);
 }})();
 </script>
 """
