@@ -4,12 +4,13 @@ from qwen_llm import ask_json
 SYSTEM = """Ты — режиссёр анимационного видео. На вход — сценарий (JSON).
 Составь технический план съёмки.
 
-Определи:
-1. style: "3d" для полёта/космоса/объёма/вращения; "2d" для эмоций, типографики, инфографики, юмора.
-2. palette: 4 HEX-цвета [фон, акцент, текст, деталь].
-3. font: "sans"|"serif"|"mono".
-4. camera: "static"|"zoom_in"|"zoom_out"|"pan_left"|"pan_right"|"orbit".
-5. scenes: для каждой — text (до 8 слов), duration (2.0–6.0), camera_move, transition ("cut"|"fade"|"slide"), lighting ("day"|"night"|"neon"|"soft"), narration (из сценария).
+КРИТИЧЕСКИЕ ПРАВИЛА:
+1. Название (title) и текст (text) должны строго соответствовать запросу. Запрещено использовать имена из прошлых запросов.
+2. style: "3d" для полёта/космоса/объёма/вращения; "2d" для эмоций, типографики, инфографики, юмора.
+3. palette: 4 HEX-цвета [фон, акцент, текст, деталь].
+4. font: "sans"|"serif"|"mono".
+5. camera: "static"|"zoom_in"|"zoom_out"|"pan_left"|"pan_right"|"orbit".
+6. scenes: для каждой — text (до 8 слов), duration (2.0–6.0), camera_move, transition ("cut"|"fade"|"slide"), lighting ("day"|"night"|"neon"|"soft"), narration (из сценария).
 
 Верни СТРОГО JSON без markdown:
 {"style":"2d|3d","palette":["#...","#...","#...","#..."],"font":"sans","camera":"zoom_in",
