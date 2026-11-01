@@ -7,10 +7,11 @@ CSS = """
 #wm {
   position: absolute;
   display: flex;
-  flex-direction: row;    
-  align-items: flex-end; 
+  flex-direction: column; 
+  align-items: center;    
   opacity: 0;
-  transition: opacity 0.6s ease, top 0.8s ease, left 0.8s ease, right 0.8s ease, bottom 0.8s ease;
+  /* Плавное появление и перемещение */
+  transition: opacity 0.8s ease, top 0.8s ease, left 0.8s ease, right 0.8s ease, bottom 0.8s ease;
 }
 #wm img {
   height: 80px; 
@@ -25,8 +26,7 @@ CSS = """
   font-family: system-ui, -apple-system, sans-serif;
   white-space: nowrap;
   line-height: 1;
-  margin-left: 5px;       
-  margin-bottom: 20px;    
+  margin-top: -22px;        
   text-shadow: 
     -1px -1px 0 #000,  
      1px -1px 0 #000,
@@ -37,6 +37,7 @@ CSS = """
 """
 
 def _build_js(total_seconds: float) -> str:
+    # Позиции для полета (каждые 3 секунды)
     steps = max(1, int(total_seconds / 3.0))
     positions = [
         {"top": "30px", "left": "30px"},
@@ -44,30 +45,43 @@ def _build_js(total_seconds: float) -> str:
         {"bottom": "30px", "right": "30px"},
         {"bottom": "30px", "left": "30px"}
     ]
-    seq = [positions[i % len(positions)] for i in range(steps + 2)]
+    seq = [positions[i % len(positions)] for i in range(steps + 1)]
     
+    # Генерируем уникальный ID для таймера, чтобы он не конфликтовал
     return f"""
 <script>
 (function() {{
   const seq = {seq!r};
   const el = document.getElementById('wm');
   let i = 0;
+  
   function apply(p) {{
     el.style.top = p.top || 'auto';
     el.style.left = p.left || 'auto';
     el.style.right = p.right || 'auto';
     el.style.bottom = p.bottom || 'auto';
   }}
+  
   function tick() {{
+    // Плавно прячем
     el.style.opacity = '0';
+    
+    // Ждем, пока она исчезнет (0.8 сек, как в CSS transition)
     setTimeout(() => {{
       apply(seq[i % seq.length]); 
       i++;
       el.style.opacity = '1';
-    }}, 600);
+    }}, 800);
   }}
-  apply(seq[0]); i = 1;
-  setTimeout(() => {{ el.style.opacity = '1'; }}, 300);
+  
+  // Первый показ (через 2 секунды, чтобы Three.js успел загрузиться)
+  setTimeout(() => {{
+    apply(seq[0]); 
+    i = 1;
+    el.style.opacity = '1';
+  }}, 2000);
+  
+  // Запускаем цикл полета (каждые 3 секунды)
   setInterval(tick, 3000);
 }})();
 </script>
