@@ -2,13 +2,13 @@ name: promt-bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/10 * * * *'   # проверка каждые 10 минут
   workflow_dispatch:
 
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360      # максимум 6 часов
     steps:
       - uses: actions/checkout@v4
 
