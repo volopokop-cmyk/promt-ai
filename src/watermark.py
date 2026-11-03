@@ -1,4 +1,5 @@
 import re
+import html as html_lib
 
 CSS = """
 #wm-overlay {
@@ -46,7 +47,6 @@ CSS = """
 """
 
 def _build_js(total_seconds: float) -> str:
-    # Красивый полёт по углам + лёгкий центр
     positions = [
         {"top": "28px",  "left": "28px",  "transform": "none"},
         {"top": "28px",  "right": "28px", "transform": "none"},
@@ -83,7 +83,6 @@ def _build_js(total_seconds: float) -> str:
     }}, 650);
   }}
 
-  // Появление через 1.2 сек после старта сцены
   setTimeout(() => {{
     apply(seq[0]);
     i = 1;
@@ -97,16 +96,35 @@ def _build_js(total_seconds: float) -> str:
 
 GITHUB_RAW_LINK = "https://raw.githubusercontent.com/volopokop-cmyk/promt-ai/main/logo.jpg"
 
+def format_display_name(label: str = "") -> str:
+    """
+    Нормализует подпись на вотермарке.
+    - есть username → @username
+    - только имя → Имя (без @)
+    - пусто → Prompt AI
+    """
+    name = (label or "").strip()
+    if not name:
+        return "Prompt AI"
+    if name.startswith("@"):
+        bare = name.lstrip("@").strip()
+        return f"@{bare}" if bare else "Prompt AI"
+    # Если это похоже на username (латиница/цифры/_), можно с @
+    # Иначе — обычное имя аккаунта без собаки
+    if re.fullmatch(r"[A-Za-z0-9_]{3,32}", name):
+        return f"@{name}"
+    return name[:40]
+
 def inject(html: str, duration: float, username: str = "") -> str:
-    """Вставляет красивую летающую вотермарку (лого + ник) прямо в HTML сцены."""
-    name = (username or "").lstrip("@").strip()
-    display_name = f"@{name}" if name else "Prompt AI"
+    """Вставляет летающую вотермарку (лого + имя)."""
+    display_name = format_display_name(username)
+    safe = html_lib.escape(display_name)
 
     overlay = (
         f"<style>{CSS}</style>"
         f'<div id="wm-overlay"><div id="wm">'
         f'<img src="{GITHUB_RAW_LINK}" alt="logo">'
-        f'<span class="wm-text">{display_name}</span>'
+        f'<span class="wm-text">{safe}</span>'
         f"</div></div>"
         f"{_build_js(duration)}"
     )
