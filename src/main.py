@@ -3,7 +3,6 @@ import json
 import shutil
 import time
 import threading
-import re
 import os
 import requests
 from pathlib import Path
@@ -13,6 +12,7 @@ from telegram import get_updates, send_message, send_video, answer_callback, edi
 from agents import screenwriter, director, artist, editor
 from tts_engine import synth
 from watermark import inject
+from lipsync import mouth_curve_from_wav
 
 STATE = Path("state/offset.json")
 WORK = Path("work")
@@ -65,12 +65,8 @@ def get_menu(settings):
                 {"text": f"🇷🇺 RU {'✅' if l == 'Russian' else ''}", "callback_data": "lang_ru"},
                 {"text": f"🇬🇧 EN {'✅' if l == 'English' else ''}", "callback_data": "lang_en"}
             ],
-            [
-                {"text": "🔁 Повторить видео", "callback_data": "mode_repeat"}
-            ],
-            [
-                {"text": "✅ Готово — напишу идею", "callback_data": "done"}
-            ]
+            [{"text": "🔁 Повторить видео", "callback_data": "mode_repeat"}],
+            [{"text": "✅ Готово — напишу идею", "callback_data": "done"}]
         ]
     }
     return keyboard
@@ -81,9 +77,8 @@ def progress_updater(chat_id, message_id, is_done_flag):
         time.sleep(5)
         percent = min(99, percent + 2)
         bar = "█" * (percent // 10) + "░" * (10 - percent // 10)
-        text = f"⏳ Генерация видео...\n\n[{bar}] {percent}%"
         try:
-            edit_message_text(chat_id, message_id, text)
+            edit_message_text(chat_id, message_id, f"⏳ Генерация видео...\n\n[{bar}] {percent}%")
         except Exception:
             pass
 
@@ -117,7 +112,6 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
         if n_scenes == 0:
             raise ValueError("Режиссёр не создал ни одной сцены")
 
-        # Подтягиваем narration из сценария в план (для липсинга и озвучки)
         script_scenes = script.get("scenes", [])
         for i, sc in enumerate(plan["scenes"]):
             if i < len(script_scenes):
@@ -132,15 +126,9 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
             for sc in plan["scenes"]:
                 sc["duration"] = round(sc["duration"] * scale, 2)
 
-        # Рисуем сцены
-        scenes_html = []
-        for sc in plan["scenes"]:
-            html = artist.run(sc, plan, original_idea=idea)
-            html = inject(html, float(sc["duration"]), username=username)
-            scenes_html.append((html, sc["duration"]))
-
-        # Озвучка — строго narration (то, что написал пользователь)
+        # 1) Сначала озвучка — чтобы построить липсинг по реальному аудио
         audio_parts = []
+        lip_curves = []
         for i, sc in enumerate(plan["scenes"]):
             p = WORK / f"a_{i}.wav"
             clean_text = (sc.get("narration") or "").strip()
@@ -151,16 +139,25 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
 
             if not clean_text:
                 os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} {p}")
-                audio_parts.append(p)
-                continue
+            else:
+                synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
 
-            # Не добавляем лишний текст — только то, что в narration
-            synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
             audio_parts.append(p)
+            # Кривая рта по амплитуде WAV
+            lip_curves.append(mouth_curve_from_wav(p, fps=15, duration=float(sc["duration"])))
 
+        # 2) Рисуем сцены с липсингом
+        scenes_html = []
+        for i, sc in enumerate(plan["scenes"]):
+            html = artist.run(sc, plan, original_idea=idea, lip_curve=lip_curves[i])
+            html = inject(html, float(sc["duration"]), username=username)
+            scenes_html.append((html, sc["duration"]))
+
+        # 3) Рендер кадров
         from render import render_all
         asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical))
 
+        # 4) Монтаж
         mp4 = OUT / "video.mp4"
         editor.run(WORK / "frames", audio_parts, mp4)
 
@@ -187,7 +184,6 @@ def listener():
                     chat_id = cb["message"]["chat"]["id"]
                     message_id = cb["message"]["message_id"]
                     data = cb["data"]
-
                     answer_callback(cb_id)
 
                     if chat_id not in user_settings:
@@ -195,7 +191,6 @@ def listener():
                             "format": "9:16", "duration": 10, "speaker": "Vivian",
                             "language": "Russian", "style": "3d", "ready": False, "mode": "text"
                         }
-
                     settings = user_settings[chat_id]
 
                     if data.startswith("fmt_"):
@@ -218,11 +213,10 @@ def listener():
                         send_message(chat_id, "✅ Настройки сохранены! Теперь напиши идею для видео.")
                         continue
 
-                    new_keyboard = get_menu(settings)
                     edit_message_text(
                         chat_id, message_id,
                         "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.",
-                        reply_markup=new_keyboard
+                        reply_markup=get_menu(settings)
                     )
                     continue
 
@@ -237,12 +231,11 @@ def listener():
                 if "video" in msg:
                     caption = msg.get("caption", "")
                     if not caption:
-                        send_message(chat_id, "⚠️ Добавь к видео текстовое описание (что происходит).")
+                        send_message(chat_id, "⚠️ Добавь к видео текстовое описание.")
                         continue
                     if not settings or settings.get("mode") != "repeat":
                         send_message(chat_id, "⚠️ Сначала нажми «Повторить видео» в меню (/start).")
                         continue
-
                     settings["ready"] = False
                     settings["mode"] = "text"
                     with queue_lock:
@@ -253,7 +246,6 @@ def listener():
 
                 if "text" not in msg:
                     continue
-
                 text = msg["text"]
 
                 if text.startswith("/start"):
@@ -262,11 +254,10 @@ def listener():
                             "format": "9:16", "duration": 10, "speaker": "Vivian",
                             "language": "Russian", "style": "3d", "ready": False, "mode": "text"
                         }
-                    menu = get_menu(user_settings[chat_id])
                     send_message(
                         chat_id,
                         "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.",
-                        reply_markup=menu
+                        reply_markup=get_menu(user_settings[chat_id])
                     )
                     continue
 
@@ -275,11 +266,10 @@ def listener():
                     continue
 
                 settings["ready"] = False
-
                 with queue_lock:
                     queue.append({"chat_id": chat_id, "idea": text, "username": username, "settings": settings.copy()})
                     pos = len(queue)
-                send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й. Начинаю, как только освобожусь.")
+                send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й.")
 
         except Exception as e:
             print(f"Ошибка в слушателе: {e}")
@@ -292,7 +282,6 @@ def worker():
         with queue_lock:
             if queue:
                 task = queue.popleft()
-
         if task:
             try:
                 pipeline(task["idea"], task["chat_id"], task["settings"], task.get("username", ""))
@@ -302,15 +291,13 @@ def worker():
             time.sleep(2)
 
 def main():
-    print(f"Бот запущен. Работает до {RUN_SECONDS // 3600} часов, потом перезапуск...")
+    print(f"Бот запущен. Работает до {RUN_SECONDS // 3600} часов...")
     start_time = time.time()
     t = threading.Thread(target=listener, daemon=True)
     t.start()
-
     while time.time() - start_time < RUN_SECONDS:
         worker()
-
-    print("Время работы истекло. Корректный выход для перезапуска workflow.")
+    print("Время работы истекло. Выход.")
 
 if __name__ == "__main__":
     main()
