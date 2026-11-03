@@ -13,6 +13,7 @@ from agents import screenwriter, director, artist, editor
 from tts_engine import synth
 from watermark import inject
 from lipsync import mouth_curve_from_wav
+from speech import build_scene_lines
 
 STATE = Path("state/offset.json")
 WORK = Path("work")
@@ -114,10 +115,6 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
 
         script_scenes = script.get("scenes", [])
         for i, sc in enumerate(plan["scenes"]):
-            if i < len(script_scenes):
-                narr = (script_scenes[i].get("narration") or "").strip()
-                if narr:
-                    sc["narration"] = narr
             sc["duration"] = max(2.0, min(8.0, float(sc.get("duration", total_duration / n_scenes))))
 
         current_sum = sum(sc["duration"] for sc in plan["scenes"])
@@ -126,38 +123,37 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
             for sc in plan["scenes"]:
                 sc["duration"] = round(sc["duration"] * scale, 2)
 
-        # 1) Сначала озвучка — чтобы построить липсинг по реальному аудио
+        # Единая логика озвучки для 2D и 3D
+        speech_lines = build_scene_lines(idea, script_scenes, plan["scenes"])
+        for i, sc in enumerate(plan["scenes"]):
+            sc["narration"] = speech_lines[i] if i < len(speech_lines) else ""
+
+        # 1) Озвучка
         audio_parts = []
         lip_curves = []
         for i, sc in enumerate(plan["scenes"]):
             p = WORK / f"a_{i}.wav"
             clean_text = (sc.get("narration") or "").strip()
-            if not clean_text and i < len(script_scenes):
-                clean_text = (script_scenes[i].get("narration") or "").strip()
-            if not clean_text:
-                clean_text = (sc.get("text") or "").strip()
 
+            # НИКОГДА не озвучиваем весь промпт и не title/text сцены
             if not clean_text:
-                os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} {p}")
+                os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} '{p}'")
             else:
                 synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
 
             audio_parts.append(p)
-            # Кривая рта по амплитуде WAV
             lip_curves.append(mouth_curve_from_wav(p, fps=15, duration=float(sc["duration"])))
 
-        # 2) Рисуем сцены с липсингом
+        # 2) Рендер сцен
         scenes_html = []
         for i, sc in enumerate(plan["scenes"]):
             html = artist.run(sc, plan, original_idea=idea, lip_curve=lip_curves[i])
             html = inject(html, float(sc["duration"]), username=username)
             scenes_html.append((html, sc["duration"]))
 
-        # 3) Рендер кадров
         from render import render_all
         asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical))
 
-        # 4) Монтаж
         mp4 = OUT / "video.mp4"
         editor.run(WORK / "frames", audio_parts, mp4)
 
@@ -256,7 +252,8 @@ def listener():
                         }
                     send_message(
                         chat_id,
-                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.",
+                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.\n\n"
+                        "💡 Для озвучки пиши так:\n«челик говорит привет»\nили в кавычках: человек говорит \"как дела\"",
                         reply_markup=get_menu(user_settings[chat_id])
                     )
                     continue
