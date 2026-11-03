@@ -301,57 +301,38 @@ def run(scene: dict, plan: dict, original_idea: str = "", lip_curve: list | None
     scene_text = scene.get("text", "") or ""
     blob = f"{idea} {scene_text}"
 
-    wants_person = _has_any(blob, PERSON_WORDS)
-    wants_world = _has_any(blob, WORLD_WORDS)
-    wants_object = _has_any(blob, OBJECT_WORDS)
-    wants_abstract = _has_any(blob, ABSTRACT_WORDS)
+    # Проверяем именно ИДЕЮ пользователя (original_idea), а не только текст сцены!
+    wants_person = _has_any(idea, PERSON_WORDS)
+    wants_world = _has_any(idea, WORLD_WORDS)
+    wants_object = _has_any(idea, OBJECT_WORDS)
+    wants_abstract = _has_any(idea, ABSTRACT_WORDS)
 
-    # Умный дефолт — НЕ всегда человек
+    # Если пользователь просит человека — ставим человека ЖЕСТКО
     if wants_person:
-        default_key = "2d_person" if style == "2d" else "3d_person"
-    elif wants_world:
-        default_key = "2d_scene" if style == "2d" else "3d_world"
-    elif wants_object:
-        default_key = "2d_card" if style == "2d" else "3d_object"
-    elif wants_abstract:
-        default_key = "abstract"
+        template_key = "2d_person" if style == "2d" else "3d_person"
     else:
-        default_key = "2d_scene" if style == "2d" else "3d_object"
+        # Иначе выбираем по контексту
+        if wants_world:
+            template_key = "2d_scene" if style == "2d" else "3d_world"
+        elif wants_object:
+            template_key = "2d_card" if style == "2d" else "3d_object"
+        elif wants_abstract:
+            template_key = "abstract"
+        else:
+            template_key = "2d_scene" if style == "2d" else "3d_object"
 
     user = f"Стиль:{style}. Идея:{idea}. Сцена:{scene_text}"
     response = ask(SYSTEM_PROMPT, user, max_new_tokens=60).strip()
 
-    template_key = default_key
     anim = "idle"
     try:
         start = response.find("{")
         end = response.rfind("}")
         if start != -1 and end != -1:
             data = json.loads(response[start:end+1])
-            template_key = data.get("key", default_key)
             anim = data.get("anim", "idle")
     except Exception:
         pass
-
-    if template_key not in TEMPLATES:
-        template_key = default_key
-
-    # Жёсткие правила приоритета по смыслу идеи
-    if wants_person:
-        template_key = "2d_person" if style == "2d" else "3d_person"
-    else:
-        # Не форсируем человека, если его не просили
-        if template_key in ("3d_person", "2d_person"):
-            template_key = default_key
-        if style == "2d" and template_key.startswith("3d_"):
-            template_key = "2d_scene" if wants_world else ("2d_card" if not wants_abstract else "abstract")
-        if style == "3d" and template_key in ("2d_person", "2d_card", "2d_scene"):
-            if wants_world:
-                template_key = "3d_world"
-            elif wants_abstract:
-                template_key = "abstract"
-            else:
-                template_key = "3d_object"
 
     # Анимации по типу
     if template_key == "3d_object" and anim in ("walk", "wave", "jump"):
@@ -359,7 +340,7 @@ def run(scene: dict, plan: dict, original_idea: str = "", lip_curve: list | None
     if template_key in ("3d_person", "2d_person") and anim in ("spin", "bounce", "pulse"):
         anim = "idle"
 
-    shape = _pick_shape(blob)
+    shape = _pick_shape(idea)
     curve = lip_curve if lip_curve is not None else [0.0]
     lip_js = json.dumps(curve)
 
@@ -372,6 +353,5 @@ def run(scene: dict, plan: dict, original_idea: str = "", lip_curve: list | None
     html = html.replace("{anim}", anim)
     html = html.replace("{lip_curve}", lip_js)
     html = html.replace("{shape}", shape)
-    # text внутри 2d_scene тоже
     html = html.replace("{text}", text_safe)
     return html
