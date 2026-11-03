@@ -22,8 +22,7 @@ queue = deque()
 queue_lock = threading.Lock()
 user_settings = {}
 
-# Бот работает ~6 часов, потом корректно завершается (workflow перезапустит)
-RUN_SECONDS = 6 * 3600 - 120  # 6 часов минус небольшой запас
+RUN_SECONDS = 6 * 3600 - 120
 
 def load_offset():
     if STATE.exists():
@@ -98,7 +97,7 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
     total_duration = max(5, min(30, int(settings.get("duration", 10))))
     selected_speaker = settings.get("speaker", "Vivian")
     selected_language = settings.get("language", "Russian")
-    forced_style = settings.get("style", "3d")  # 2d или 3d
+    forced_style = settings.get("style", "3d")
 
     msg = requests.post(
         f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
@@ -111,57 +110,57 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
     t.start()
 
     try:
-        # 1. Сценарий
         script = screenwriter.run(idea, total_duration=total_duration)
-
-        # 2. Режиссёрский план (с принудительным стилем)
         plan = director.run(script, forced_style=forced_style, total_duration=total_duration)
 
-        # Распределяем длительность сцен
         n_scenes = len(plan["scenes"])
         if n_scenes == 0:
             raise ValueError("Режиссёр не создал ни одной сцены")
-        base_dur = total_duration / n_scenes
-        for sc in plan["scenes"]:
-            sc["duration"] = max(2.0, min(8.0, float(sc.get("duration", base_dur))))
 
-        # Нормализуем сумму длительностей к total_duration
+        # Подтягиваем narration из сценария в план (для липсинга и озвучки)
+        script_scenes = script.get("scenes", [])
+        for i, sc in enumerate(plan["scenes"]):
+            if i < len(script_scenes):
+                narr = (script_scenes[i].get("narration") or "").strip()
+                if narr:
+                    sc["narration"] = narr
+            sc["duration"] = max(2.0, min(8.0, float(sc.get("duration", total_duration / n_scenes))))
+
         current_sum = sum(sc["duration"] for sc in plan["scenes"])
         if current_sum > 0:
             scale = total_duration / current_sum
             for sc in plan["scenes"]:
                 sc["duration"] = round(sc["duration"] * scale, 2)
 
-        # 3. Рисуем сцены + вотермарка
+        # Рисуем сцены
         scenes_html = []
         for sc in plan["scenes"]:
             html = artist.run(sc, plan, original_idea=idea)
             html = inject(html, float(sc["duration"]), username=username)
             scenes_html.append((html, sc["duration"]))
 
-        # 4. Озвучка
+        # Озвучка — строго narration (то, что написал пользователь)
         audio_parts = []
         for i, sc in enumerate(plan["scenes"]):
             p = WORK / f"a_{i}.wav"
-            clean_text = ""
-            if i < len(script.get("scenes", [])):
-                clean_text = script["scenes"][i].get("narration", "") or ""
-            if not clean_text.strip():
-                clean_text = sc.get("text", "") or sc.get("narration", "")
+            clean_text = (sc.get("narration") or "").strip()
+            if not clean_text and i < len(script_scenes):
+                clean_text = (script_scenes[i].get("narration") or "").strip()
+            if not clean_text:
+                clean_text = (sc.get("text") or "").strip()
 
-            if not clean_text.strip():
+            if not clean_text:
                 os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} {p}")
                 audio_parts.append(p)
                 continue
 
+            # Не добавляем лишний текст — только то, что в narration
             synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
             audio_parts.append(p)
 
-        # 5. Рендер кадров
         from render import render_all
         asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical))
 
-        # 6. Монтаж
         mp4 = OUT / "video.mp4"
         editor.run(WORK / "frames", audio_parts, mp4)
 
