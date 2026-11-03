@@ -25,14 +25,13 @@ user_settings = {}
 
 RUN_SECONDS = 6 * 3600 - 120
 
-# ID бота из токена (число до двоеточия)
 def _bot_id() -> int | None:
     try:
         return int(os.environ.get("BOT_TOKEN", "0").split(":")[0])
     except Exception:
         return None
 
-BOT_ID = None  # заполнится при первом вызове
+BOT_ID = None
 
 def get_bot_id() -> int | None:
     global BOT_ID
@@ -45,7 +44,6 @@ def is_group_chat(msg: dict) -> bool:
     return t in ("group", "supergroup")
 
 def is_reply_to_bot(msg: dict) -> bool:
-    """True, если сообщение — reply на сообщение нашего бота."""
     reply = msg.get("reply_to_message")
     if not reply:
         return False
@@ -55,8 +53,30 @@ def is_reply_to_bot(msg: dict) -> bool:
     bid = get_bot_id()
     if bid is not None and frm.get("id") is not None:
         return int(frm["id"]) == int(bid)
-    # если id не сверили — достаточно is_bot
     return True
+
+def display_label_from_user(from_user: dict | None, settings: dict | None = None) -> str:
+    """
+    Подпись для вотермарки:
+    1) кастомный ник из настроек (если задан)
+    2) @username
+    3) first_name + last_name (акк без собаки)
+    4) пусто → watermark поставит Prompt AI
+    """
+    settings = settings or {}
+    custom = (settings.get("wm_name") or "").strip()
+    if custom:
+        return custom
+
+    from_user = from_user or {}
+    uname = (from_user.get("username") or "").strip()
+    if uname:
+        return f"@{uname.lstrip('@')}"
+
+    first = (from_user.get("first_name") or "").strip()
+    last = (from_user.get("last_name") or "").strip()
+    full = (first + (" " + last if last else "")).strip()
+    return full
 
 def load_offset():
     if STATE.exists():
@@ -73,6 +93,8 @@ def get_menu(settings):
     s = settings.get("speaker", "Vivian")
     l = settings.get("language", "Russian")
     st = settings.get("style", "3d")
+    wm = (settings.get("wm_name") or "").strip()
+    wm_btn = f"🏷 Ник: {wm[:12]}" if wm else "🏷 Ник: авто"
 
     keyboard = {
         "inline_keyboard": [
@@ -99,11 +121,22 @@ def get_menu(settings):
                 {"text": f"🇷🇺 RU {'✅' if l == 'Russian' else ''}", "callback_data": "lang_ru"},
                 {"text": f"🇬🇧 EN {'✅' if l == 'English' else ''}", "callback_data": "lang_en"}
             ],
+            [
+                {"text": wm_btn, "callback_data": "wm_set"},
+                {"text": "♻️ Сброс ника", "callback_data": "wm_clear"}
+            ],
             [{"text": "🔁 Повторить видео", "callback_data": "mode_repeat"}],
             [{"text": "✅ Готово — напишу идею", "callback_data": "done"}]
         ]
     }
     return keyboard
+
+def default_settings():
+    return {
+        "format": "9:16", "duration": 10, "speaker": "Vivian",
+        "language": "Russian", "style": "3d", "ready": False,
+        "mode": "text", "wm_name": "", "await_wm": False
+    }
 
 def progress_updater(chat_id, message_id, is_done_flag):
     percent = 0
@@ -212,10 +245,7 @@ def listener():
                     answer_callback(cb_id)
 
                     if chat_id not in user_settings:
-                        user_settings[chat_id] = {
-                            "format": "9:16", "duration": 10, "speaker": "Vivian",
-                            "language": "Russian", "style": "3d", "ready": False, "mode": "text"
-                        }
+                        user_settings[chat_id] = default_settings()
                     settings = user_settings[chat_id]
 
                     if data.startswith("fmt_"):
@@ -228,6 +258,20 @@ def listener():
                         settings["speaker"] = "Ryan" if "male" in data else "Vivian"
                     elif data.startswith("lang_"):
                         settings["language"] = "Russian" if "ru" in data else "English"
+                    elif data == "wm_set":
+                        settings["await_wm"] = True
+                        settings["ready"] = False
+                        send_message(
+                            chat_id,
+                            "🏷 Напиши ник для вотермарки (можно без @).\n"
+                            "Например: Иван или @myname\n"
+                            "Если у аккаунта нет username — просто имя тоже ок."
+                        )
+                        continue
+                    elif data == "wm_clear":
+                        settings["wm_name"] = ""
+                        settings["await_wm"] = False
+                        send_message(chat_id, "♻️ Ник сброшен. Будет браться из аккаунта автоматически.")
                     elif data == "mode_repeat":
                         settings["mode"] = "repeat"
                         send_message(chat_id, "📹 Отправь видео и напиши в подписи, что на нём происходит.")
@@ -235,12 +279,13 @@ def listener():
                     elif data == "done":
                         settings["ready"] = True
                         settings["mode"] = "text"
+                        settings["await_wm"] = False
                         send_message(chat_id, "✅ Настройки сохранены! Теперь напиши идею для видео.")
                         continue
 
                     edit_message_text(
                         chat_id, message_id,
-                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.",
+                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык • ник\n\nПотом нажми «Готово» и напиши идею.",
                         reply_markup=get_menu(settings)
                     )
                     continue
@@ -249,26 +294,48 @@ def listener():
                 if not msg:
                     continue
 
-                # === ГРУППА: игнорируем всё, кроме reply на сообщение бота ===
                 if is_group_chat(msg) and not is_reply_to_bot(msg):
                     continue
 
                 chat_id = msg["chat"]["id"]
-                username = msg.get("from", {}).get("username", "")
-                settings = user_settings.get(chat_id, {})
+                from_user = msg.get("from") or {}
+                if chat_id not in user_settings:
+                    user_settings[chat_id] = default_settings()
+                settings = user_settings[chat_id]
+
+                # Пользователь вводит свой ник для вотермарки
+                if settings.get("await_wm") and "text" in msg:
+                    text = (msg.get("text") or "").strip()
+                    if text.startswith("/"):
+                        settings["await_wm"] = False
+                    else:
+                        settings["wm_name"] = text[:40]
+                        settings["await_wm"] = False
+                        send_message(
+                            chat_id,
+                            f"✅ Ник для видео: {settings['wm_name']}\n"
+                            "Можно снова открыть /start и нажать «Готово».",
+                            reply_markup=get_menu(settings)
+                        )
+                        continue
+
+                display_name = display_label_from_user(from_user, settings)
 
                 if "video" in msg:
                     caption = msg.get("caption", "")
                     if not caption:
                         send_message(chat_id, "⚠️ Добавь к видео текстовое описание.")
                         continue
-                    if not settings or settings.get("mode") != "repeat":
+                    if settings.get("mode") != "repeat":
                         send_message(chat_id, "⚠️ Сначала нажми «Повторить видео» в меню (/start).")
                         continue
                     settings["ready"] = False
                     settings["mode"] = "text"
                     with queue_lock:
-                        queue.append({"chat_id": chat_id, "idea": caption, "username": username, "settings": settings.copy()})
+                        queue.append({
+                            "chat_id": chat_id, "idea": caption,
+                            "username": display_name, "settings": settings.copy()
+                        })
                         pos = len(queue)
                     send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й.")
                     continue
@@ -277,29 +344,35 @@ def listener():
                     continue
                 text = msg["text"]
 
-                # /start@BotName → /start
                 if text.startswith("/start"):
-                    if chat_id not in user_settings:
-                        user_settings[chat_id] = {
+                    user_settings[chat_id] = {**default_settings(), **{
+                        k: settings.get(k, v) for k, v in {
                             "format": "9:16", "duration": 10, "speaker": "Vivian",
-                            "language": "Russian", "style": "3d", "ready": False, "mode": "text"
-                        }
+                            "language": "Russian", "style": "3d", "wm_name": ""
+                        }.items()
+                    }}
+                    # сохраняем уже выбранный ник
+                    user_settings[chat_id]["wm_name"] = settings.get("wm_name", "")
                     send_message(
                         chat_id,
-                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.\n\n"
-                        "💡 В группе пиши боту только ответом (reply) на его сообщение.\n"
-                        "Для озвучки: «челик говорит привет»",
+                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык • ник\n\n"
+                        "Потом нажми «Готово» и напиши идею.\n\n"
+                        "💡 Нет @username? Нажми «Ник» и напиши своё имя — оно будет на видео.\n"
+                        "В группе — только reply на сообщение бота.",
                         reply_markup=get_menu(user_settings[chat_id])
                     )
                     continue
 
-                if not settings or not settings.get("ready"):
+                if not settings.get("ready"):
                     send_message(chat_id, "⚠️ Сначала выбери настройки в меню (нажми /start).")
                     continue
 
                 settings["ready"] = False
                 with queue_lock:
-                    queue.append({"chat_id": chat_id, "idea": text, "username": username, "settings": settings.copy()})
+                    queue.append({
+                        "chat_id": chat_id, "idea": text,
+                        "username": display_name, "settings": settings.copy()
+                    })
                     pos = len(queue)
                 send_message(chat_id, f"🎬 Принято в очередь! Ты {pos}-й.")
 
