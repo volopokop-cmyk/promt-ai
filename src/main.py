@@ -25,6 +25,39 @@ user_settings = {}
 
 RUN_SECONDS = 6 * 3600 - 120
 
+# ID бота из токена (число до двоеточия)
+def _bot_id() -> int | None:
+    try:
+        return int(os.environ.get("BOT_TOKEN", "0").split(":")[0])
+    except Exception:
+        return None
+
+BOT_ID = None  # заполнится при первом вызове
+
+def get_bot_id() -> int | None:
+    global BOT_ID
+    if BOT_ID is None:
+        BOT_ID = _bot_id()
+    return BOT_ID
+
+def is_group_chat(msg: dict) -> bool:
+    t = (msg.get("chat") or {}).get("type", "private")
+    return t in ("group", "supergroup")
+
+def is_reply_to_bot(msg: dict) -> bool:
+    """True, если сообщение — reply на сообщение нашего бота."""
+    reply = msg.get("reply_to_message")
+    if not reply:
+        return False
+    frm = reply.get("from") or {}
+    if not frm.get("is_bot"):
+        return False
+    bid = get_bot_id()
+    if bid is not None and frm.get("id") is not None:
+        return int(frm["id"]) == int(bid)
+    # если id не сверили — достаточно is_bot
+    return True
+
 def load_offset():
     if STATE.exists():
         return json.loads(STATE.read_text()).get("offset")
@@ -123,19 +156,16 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
             for sc in plan["scenes"]:
                 sc["duration"] = round(sc["duration"] * scale, 2)
 
-        # Единая логика озвучки для 2D и 3D
         speech_lines = build_scene_lines(idea, script_scenes, plan["scenes"])
         for i, sc in enumerate(plan["scenes"]):
             sc["narration"] = speech_lines[i] if i < len(speech_lines) else ""
 
-        # 1) Озвучка
         audio_parts = []
         lip_curves = []
         for i, sc in enumerate(plan["scenes"]):
             p = WORK / f"a_{i}.wav"
             clean_text = (sc.get("narration") or "").strip()
 
-            # НИКОГДА не озвучиваем весь промпт и не title/text сцены
             if not clean_text:
                 os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} '{p}'")
             else:
@@ -144,7 +174,6 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
             audio_parts.append(p)
             lip_curves.append(mouth_curve_from_wav(p, fps=15, duration=float(sc["duration"])))
 
-        # 2) Рендер сцен
         scenes_html = []
         for i, sc in enumerate(plan["scenes"]):
             html = artist.run(sc, plan, original_idea=idea, lip_curve=lip_curves[i])
@@ -220,6 +249,10 @@ def listener():
                 if not msg:
                     continue
 
+                # === ГРУППА: игнорируем всё, кроме reply на сообщение бота ===
+                if is_group_chat(msg) and not is_reply_to_bot(msg):
+                    continue
+
                 chat_id = msg["chat"]["id"]
                 username = msg.get("from", {}).get("username", "")
                 settings = user_settings.get(chat_id, {})
@@ -244,6 +277,7 @@ def listener():
                     continue
                 text = msg["text"]
 
+                # /start@BotName → /start
                 if text.startswith("/start"):
                     if chat_id not in user_settings:
                         user_settings[chat_id] = {
@@ -253,7 +287,8 @@ def listener():
                     send_message(
                         chat_id,
                         "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык\n\nПотом нажми «Готово» и напиши идею.\n\n"
-                        "💡 Для озвучки пиши так:\n«челик говорит привет»\nили в кавычках: человек говорит \"как дела\"",
+                        "💡 В группе пиши боту только ответом (reply) на его сообщение.\n"
+                        "Для озвучки: «челик говорит привет»",
                         reply_markup=get_menu(user_settings[chat_id])
                     )
                     continue
