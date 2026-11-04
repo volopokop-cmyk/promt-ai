@@ -1,10 +1,9 @@
 from qwen_llm import ask
 import json, re
-from agents.artist_templates import (
-    T_3D_PERSON, T_3D_CAT, T_3D_OBJECT, T_3D_WORLD,
-    T_2D_PERSON, T_2D_CAT, T_2D_SCENE, T_2D_CARD,
-    T_ABSTRACT, T_DEFAULT, BASE_HTML,
-)
+from agents.t_person import T_3D_PERSON, T_2D_PERSON
+from agents.t_cat import T_3D_CAT, T_2D_CAT
+from agents.t_misc import T_3D_OBJECT, T_3D_WORLD, T_2D_SCENE, T_2D_CARD, T_ABSTRACT, T_DEFAULT, BASE_HTML
+
 TEMPLATES = {
     "3d_person": T_3D_PERSON, "3d_cat": T_3D_CAT, "2d_cat": T_2D_CAT,
     "3d_object": T_3D_OBJECT, "3d_world": T_3D_WORLD, "2d_person": T_2D_PERSON,
