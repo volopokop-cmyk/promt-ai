@@ -1,5 +1,5 @@
-# 2D — CSS-фигуры со светлой кожей
-# 3D — Three.js (настоящий 3D)
+# 2D — CSS со светлой кожей
+# 3D — Three.js r128 (Cylinder/Sphere)
 
 _PERSON_CSS = '''
 .p-skin{background:#e8b89a}
@@ -62,7 +62,6 @@ T_2D_PERSON = '''<div class="person-wrap" style="width:320px;height:480px;margin
 })();
 </script></div>'''
 
-# Настоящий 3D-человек (Three.js)
 T_3D_PERSON = '''<div id="c3d" style="width:400px;height:520px;margin:0 auto"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -91,64 +90,56 @@ T_3D_PERSON = '''<div id="c3d" style="width:400px;height:520px;margin:0 auto"></
   const root=new THREE.Group();
   scene.add(root);
 
-  function mesh(geo,mat,x,y,z,sx,sy,sz){
+  function mesh(geo,mat,x,y,z){
     const m=new THREE.Mesh(geo,mat);
     m.position.set(x,y,z);
-    if(sx!==undefined) m.scale.set(sx,sy,sz);
     root.add(m);
     return m;
   }
 
-  // тело
-  const body=mesh(new THREE.CapsuleGeometry(0.35,0.7,6,12),shirt,0,0.9,0);
-  // голова
+  const body=mesh(new THREE.CylinderGeometry(0.38,0.42,0.95,12),shirt,0,0.95,0);
   const head=mesh(new THREE.SphereGeometry(0.32,16,16),skin,0,1.85,0);
-  // глаза
   mesh(new THREE.SphereGeometry(0.05,8,8),dark,-0.1,1.9,0.28);
   mesh(new THREE.SphereGeometry(0.05,8,8),dark,0.1,1.9,0.28);
-  // рот (lipsync)
   const mouth=mesh(new THREE.BoxGeometry(0.14,0.04,0.06),dark,0,1.72,0.28);
-  // руки
-  const armL=mesh(new THREE.CapsuleGeometry(0.08,0.45,4,8),skin,-0.55,1.0,0);
-  const armR=mesh(new THREE.CapsuleGeometry(0.08,0.45,4,8),skin,0.55,1.0,0);
-  // ноги
-  const legL=mesh(new THREE.CapsuleGeometry(0.11,0.55,4,8),pants,-0.18,0.15,0);
-  const legR=mesh(new THREE.CapsuleGeometry(0.11,0.55,4,8),pants,0.18,0.15,0);
+  const armL=mesh(new THREE.CylinderGeometry(0.07,0.08,0.55,8),skin,-0.55,1.05,0);
+  const armR=mesh(new THREE.CylinderGeometry(0.07,0.08,0.55,8),skin,0.55,1.05,0);
+  const legL=mesh(new THREE.CylinderGeometry(0.1,0.12,0.7,8),pants,-0.18,0.2,0);
+  const legR=mesh(new THREE.CylinderGeometry(0.1,0.12,0.7,8),pants,0.18,0.2,0);
 
   cam.position.set(0,1.2,4.2);
   cam.lookAt(0,1.0,0);
 
   const t0=performance.now()/1000;
   function tick(){
-    const el=(performance.now()/1000-t0);
-    const fr=Math.min(lip.length-1,Math.max(0,Math.floor(el*15)));
+    const t=(performance.now()/1000-t0);
+    const fr=Math.min(lip.length-1,Math.max(0,Math.floor(t*15)));
     const v=lip.length?lip[fr]:0;
     if(mouth) mouth.scale.y=1+v*4;
 
     if(anim==="squat"){
-      const s=(Math.sin(el*1.6)+1)/2;
-      body.position.y=0.9-s*0.35;
+      const s=(Math.sin(t*1.6)+1)/2;
+      body.position.y=0.95-s*0.35;
       head.position.y=1.85-s*0.35;
       legL.scale.y=1-s*0.35;
       legR.scale.y=1-s*0.35;
     } else if(anim==="stand"){
-      const s=Math.min(1,el/1.2);
-      body.position.y=0.55+s*0.35;
+      const s=Math.min(1,t/1.2);
+      body.position.y=0.6+s*0.35;
       head.position.y=1.5+s*0.35;
     } else if(anim==="walk"){
-      root.position.x=Math.sin(el*2.5)*0.15;
-      legL.rotation.x=Math.sin(el*3)*0.4;
-      legR.rotation.x=Math.sin(el*3+Math.PI)*0.4;
-      armL.rotation.x=Math.sin(el*3+Math.PI)*0.35;
-      armR.rotation.x=Math.sin(el*3)*0.35;
+      root.position.x=Math.sin(t*2.5)*0.15;
+      legL.rotation.x=Math.sin(t*3)*0.4;
+      legR.rotation.x=Math.sin(t*3+Math.PI)*0.4;
+      armL.rotation.x=Math.sin(t*3+Math.PI)*0.35;
+      armR.rotation.x=Math.sin(t*3)*0.35;
     } else if(anim==="wave"){
-      armR.rotation.z=-0.8+Math.sin(el*5)*0.5;
+      armR.rotation.z=-0.8+Math.sin(t*5)*0.5;
       armR.rotation.x=0.3;
     } else if(anim==="jump"){
-      const s=Math.abs(Math.sin(el*2.5))*0.5;
-      root.position.y=s;
+      root.position.y=Math.abs(Math.sin(t*2.5))*0.5;
     } else {
-      root.rotation.y=Math.sin(el*0.8)*0.15;
+      root.rotation.y=Math.sin(t*0.8)*0.15;
     }
 
     renderer.render(scene,cam);
