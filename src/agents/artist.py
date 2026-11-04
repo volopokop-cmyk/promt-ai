@@ -26,7 +26,7 @@ T_3D_PERSON = r'''
   let model = null;
   let actions = {};
 
-  loader.load('man.glb', (gltf) => {
+  loader.load('https://raw.githubusercontent.com/volopokop-cmyk/promt-ai/main/man.glb', (gltf) => {
     model = gltf.scene;
     
     // Масштаб и позиция (если модель слишком большая/маленькая, меняй scale)
