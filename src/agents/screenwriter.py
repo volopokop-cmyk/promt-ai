@@ -5,15 +5,19 @@ SYSTEM = """Ты — сценарист коротких видео с НЕСК�
 
 Главное: разбей идею пользователя на последовательные сцены по действиям и объектам.
 
-Пример:
+Примеры:
 «человек приседает, встаёт и видит кошку» →
-1) visual=person, action=squat, text=Приседает
-2) visual=person, action=stand, text=Встаёт
-3) visual=cat, action=idle, text=Кошка
+1) visual=person, action=squat
+2) visual=person, action=stand
+3) visual=cat, action=idle
+
+«два человека машут» →
+1) visual=two_people, action=wave
 
 Правила:
-1. Каждая сцена = один главный объект + одно действие.
-2. visual: person | cat | dog | object | world | abstract
+1. Каждая сцена = один главный объект/группа + одно действие.
+2. visual: person | two_people | cat | dog | object | world | abstract
+   - two_people — если явно двое/пара/два человека в ОДНОЙ сцене
 3. action: idle | walk | wave | jump | squat | stand | spin | bounce | look
 4. narration — ТОЛЬКО речь персонажа (если есть). Не копируй весь промпт.
 5. Если речи нет — narration = "".
@@ -39,10 +43,10 @@ SYSTEM = """Ты — сценарист коротких видео с НЕСК�
   ]
 }"""
 
-# Эвристика для fast/turbo без LLM
 _SPLIT = re.compile(r"[,;]|\s+и\s+|\s+потом\s+|\s+затем\s+|\s+после\s+|\s+then\s+|\s+and\s+", re.I)
 
 _VISUAL_MAP = [
+    (r"2\s*человек|два\s*человек|двое|два\s*парень|две\s*девуш|пара\b|together|two\s*people|couple", "two_people"),
     (r"кошк|кот(?!е)|cat|kitten", "cat"),
     (r"собак|пёс|пес|dog", "dog"),
     (r"человек|челик|парень|девушк|персонаж|person|man|woman|guy|girl", "person"),
@@ -89,12 +93,17 @@ def heuristic_script(idea: str, total_duration: int = 10, max_scenes: int = 4) -
             "text": p[:40],
             "narration": "",
         })
-    # если одна часть, но в ней несколько visual — попробуем person+cat
     if len(scenes) == 1:
         t = idea.lower()
         has_p = bool(re.search(r"человек|челик|person|парень|девушк", t))
         has_c = bool(re.search(r"кошк|кот|cat", t))
-        if has_p and has_c:
+        has_two = bool(re.search(r"2\s*человек|два\s*человек|двое|two\s*people|couple", t))
+        if has_two:
+            scenes = [{
+                "beat": "1", "mood": "", "visual": "two_people",
+                "action": _guess_action(idea), "text": "Двое", "narration": "",
+            }]
+        elif has_p and has_c:
             scenes = [
                 {"beat": "1", "mood": "", "visual": "person", "action": _guess_action(idea), "text": "Человек", "narration": ""},
                 {"beat": "2", "mood": "", "visual": "cat", "action": "idle", "text": "Кошка", "narration": ""},
@@ -109,7 +118,7 @@ def run(idea: str, total_duration: int = 10, max_scenes: int = 6, use_llm: bool 
         f"Идея: {idea}\n"
         f"Длительность: {total_duration} сек.\n"
         f"Максимум сцен: {max_scenes}.\n"
-        f"Разбей на сцены по действиям и объектам (человек, кошка, предмет...)."
+        f"Разбей на сцены. Если двое в одной сцене — visual=two_people."
     )
     data = ask_json(SYSTEM, user, max_new_tokens=1200)
     scenes = data.get("scenes") or []
