@@ -14,6 +14,7 @@ from tts_engine import synth
 from watermark import inject
 from lipsync import mouth_curve_from_wav
 from speech import build_scene_lines
+from modes import get_mode, MODES
 
 STATE = Path("state/offset.json")
 WORK = Path("work")
@@ -93,8 +94,13 @@ def get_menu(settings):
     s = settings.get("speaker", "Vivian")
     l = settings.get("language", "Russian")
     st = settings.get("style", "3d")
+    gm = settings.get("gen_mode", "classic")
     wm = (settings.get("wm_name") or "").strip()
     wm_btn = f"🏷 Ник: {wm[:12]}" if wm else "🏷 Ник: авто"
+
+    def mode_btn(key, label):
+        mark = "✅" if gm == key else ""
+        return {"text": f"{label} {mark}".strip(), "callback_data": f"gmode_{key}"}
 
     keyboard = {
         "inline_keyboard": [
@@ -112,6 +118,14 @@ def get_menu(settings):
             [
                 {"text": f"🎨 2D {'✅' if st == '2d' else ''}", "callback_data": "style_2d"},
                 {"text": f"🧊 3D {'✅' if st == '3d' else ''}", "callback_data": "style_3d"}
+            ],
+            [
+                mode_btn("classic", "🧠 Classic"),
+                mode_btn("mini", "📦 Mini"),
+            ],
+            [
+                mode_btn("fast", "⚡ Fast"),
+                mode_btn("turbo", "🚀 Turbo"),
             ],
             [
                 {"text": f"🗣 Мужской {'✅' if s == 'Ryan' else ''}", "callback_data": "voice_male"},
@@ -135,7 +149,8 @@ def default_settings():
     return {
         "format": "9:16", "duration": 10, "speaker": "Vivian",
         "language": "Russian", "style": "3d", "ready": False,
-        "mode": "text", "wm_name": "", "await_wm": False
+        "mode": "text", "wm_name": "", "await_wm": False,
+        "gen_mode": "classic",
     }
 
 def progress_updater(chat_id, message_id, is_done_flag):
@@ -155,15 +170,23 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
     WORK.mkdir()
     OUT.mkdir(exist_ok=True)
 
+    mode_cfg = get_mode(settings.get("gen_mode", "classic"))
     is_vertical = settings.get("format", "9:16") == "9:16"
-    total_duration = max(5, min(30, int(settings.get("duration", 10))))
+    total_duration = max(5, min(int(mode_cfg.get("duration_cap", 30)), int(settings.get("duration", 10))))
     selected_speaker = settings.get("speaker", "Vivian")
     selected_language = settings.get("language", "Russian")
     forced_style = settings.get("style", "3d")
+    max_scenes = int(mode_cfg.get("max_scenes", 6))
+    fps = int(mode_cfg.get("fps", 15))
+    use_tts = bool(mode_cfg.get("tts", True))
+    use_lipsync = bool(mode_cfg.get("lipsync", True))
+    min_dur = float(mode_cfg.get("min_scene_dur", 1.5))
+    max_dur = float(mode_cfg.get("max_scene_dur", 8.0))
 
+    mode_label = mode_cfg.get("label", settings.get("gen_mode", "classic"))
     msg = requests.post(
         f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
-        json={"chat_id": chat_id, "text": "⏳ Генерация видео...\n\n[░░░░░░░░░░] 0%"}
+        json={"chat_id": chat_id, "text": f"⏳ Генерация ({mode_label})...\n\n[░░░░░░░░░░] 0%"}
     ).json()
     message_id = msg["result"]["message_id"]
 
@@ -172,8 +195,19 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
     t.start()
 
     try:
-        script = screenwriter.run(idea, total_duration=total_duration)
-        plan = director.run(script, forced_style=forced_style, total_duration=total_duration)
+        script = screenwriter.run(
+            idea,
+            total_duration=total_duration,
+            max_scenes=max_scenes,
+            use_llm=bool(mode_cfg.get("use_llm_script", True)),
+        )
+        plan = director.run(
+            script,
+            forced_style=forced_style,
+            total_duration=total_duration,
+            max_scenes=max_scenes,
+            use_llm=bool(mode_cfg.get("use_llm_director", True)),
+        )
 
         n_scenes = len(plan["scenes"])
         if n_scenes == 0:
@@ -181,7 +215,7 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
 
         script_scenes = script.get("scenes", [])
         for i, sc in enumerate(plan["scenes"]):
-            sc["duration"] = max(2.0, min(8.0, float(sc.get("duration", total_duration / n_scenes))))
+            sc["duration"] = max(min_dur, min(max_dur, float(sc.get("duration", total_duration / n_scenes))))
 
         current_sum = sum(sc["duration"] for sc in plan["scenes"])
         if current_sum > 0:
@@ -199,22 +233,30 @@ def pipeline(idea: str, chat_id: int, settings: dict, username: str = ""):
             p = WORK / f"a_{i}.wav"
             clean_text = (sc.get("narration") or "").strip()
 
-            if not clean_text:
+            if not use_tts or not clean_text:
                 os.system(f"ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t {sc['duration']} '{p}'")
             else:
                 synth(clean_text, str(p), speaker=selected_speaker, language=selected_language)
 
             audio_parts.append(p)
-            lip_curves.append(mouth_curve_from_wav(p, fps=15, duration=float(sc["duration"])))
+            if use_lipsync:
+                lip_curves.append(mouth_curve_from_wav(p, fps=fps, duration=float(sc["duration"])))
+            else:
+                lip_curves.append([0.0])
 
         scenes_html = []
         for i, sc in enumerate(plan["scenes"]):
-            html = artist.run(sc, plan, original_idea=idea, lip_curve=lip_curves[i])
+            html = artist.run(
+                sc, plan,
+                original_idea=idea,
+                lip_curve=lip_curves[i],
+                use_llm=bool(mode_cfg.get("use_llm_artist", True)),
+            )
             html = inject(html, float(sc["duration"]), username=username)
             scenes_html.append((html, sc["duration"]))
 
         from render import render_all
-        asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical))
+        asyncio.run(render_all(scenes_html, WORK / "frames", is_vertical, fps=fps))
 
         mp4 = OUT / "video.mp4"
         editor.run(WORK / "frames", audio_parts, mp4)
@@ -254,6 +296,14 @@ def listener():
                         settings["duration"] = int(data.split("_")[1])
                     elif data.startswith("style_"):
                         settings["style"] = "2d" if "2d" in data else "3d"
+                    elif data.startswith("gmode_"):
+                        key = data.split("_", 1)[1]
+                        if key in MODES:
+                            settings["gen_mode"] = key
+                            # подрезать длительность под cap режима
+                            cap = int(MODES[key].get("duration_cap", 30))
+                            if settings.get("duration", 10) > cap:
+                                settings["duration"] = cap
                     elif data.startswith("voice_"):
                         settings["speaker"] = "Ryan" if "male" in data else "Vivian"
                     elif data.startswith("lang_"):
@@ -280,12 +330,25 @@ def listener():
                         settings["ready"] = True
                         settings["mode"] = "text"
                         settings["await_wm"] = False
-                        send_message(chat_id, "✅ Настройки сохранены! Теперь напиши идею для видео.")
+                        gm = settings.get("gen_mode", "classic")
+                        label = MODES.get(gm, {}).get("label", gm)
+                        send_message(
+                            chat_id,
+                            f"✅ Настройки сохранены! Режим: {label}\n"
+                            "Теперь напиши идею для видео.\n\n"
+                            "Пример: человек приседает, встаёт и видит кошку"
+                        )
                         continue
 
                     edit_message_text(
                         chat_id, message_id,
-                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык • ник\n\nПотом нажми «Готово» и напиши идею.",
+                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • режим • голос • язык • ник\n\n"
+                        "Режимы:\n"
+                        "🧠 Classic — полный ИИ, много сцен\n"
+                        "📦 Mini — урезанный\n"
+                        "⚡ Fast — быстро, эвристики\n"
+                        "🚀 Turbo — максимально быстро\n\n"
+                        "Потом нажми «Готово» и напиши идею.",
                         reply_markup=get_menu(settings)
                     )
                     continue
@@ -345,19 +408,22 @@ def listener():
                 text = msg["text"]
 
                 if text.startswith("/start"):
-                    user_settings[chat_id] = {**default_settings(), **{
-                        k: settings.get(k, v) for k, v in {
-                            "format": "9:16", "duration": 10, "speaker": "Vivian",
-                            "language": "Russian", "style": "3d", "wm_name": ""
-                        }.items()
-                    }}
-                    # сохраняем уже выбранный ник
-                    user_settings[chat_id]["wm_name"] = settings.get("wm_name", "")
+                    prev_wm = settings.get("wm_name", "")
+                    prev_mode = settings.get("gen_mode", "classic")
+                    user_settings[chat_id] = default_settings()
+                    user_settings[chat_id]["wm_name"] = prev_wm
+                    user_settings[chat_id]["gen_mode"] = prev_mode
                     send_message(
                         chat_id,
-                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • голос • язык • ник\n\n"
-                        "Потом нажми «Готово» и напиши идею.\n\n"
-                        "💡 Нет @username? Нажми «Ник» и напиши своё имя — оно будет на видео.\n"
+                        "⚙️ Настрой генерацию:\n• формат • длительность • 2D/3D • режим • голос • язык • ник\n\n"
+                        "Режимы:\n"
+                        "🧠 Classic — полный ИИ (все агенты, lip-sync)\n"
+                        "📦 Mini — меньше LLM\n"
+                        "⚡ Fast — быстро без LLM-сценария\n"
+                        "🚀 Turbo — мегабыстро, без озвучки\n\n"
+                        "Потом нажми «Готово» и напиши идею.\n"
+                        "Пример: человек приседает, встаёт и видит кошку\n\n"
+                        "💡 Нет @username? Нажми «Ник» и напиши имя.\n"
                         "В группе — только reply на сообщение бота.",
                         reply_markup=get_menu(user_settings[chat_id])
                     )
