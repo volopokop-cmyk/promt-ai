@@ -4,6 +4,16 @@ from playwright.async_api import async_playwright
 
 DEFAULT_FPS = 15
 
+# WebGL в headless (GitHub Actions) — нужен SwiftShader
+CHROME_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--use-gl=angle",
+    "--use-angle=swiftshader-webgl",
+    "--enable-webgl",
+    "--ignore-gpu-blocklist",
+]
+
 async def render_scene(html: str, duration: float, out_dir: Path, idx: int, is_vertical: bool, fps: int = DEFAULT_FPS):
     frames = max(1, int(duration * fps))
     f = out_dir / f"scene_{idx}.html"
@@ -12,10 +22,11 @@ async def render_scene(html: str, duration: float, out_dir: Path, idx: int, is_v
     W, H = (720, 1280) if is_vertical else (1280, 720)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(args=["--no-sandbox", "--disable-dev-shm-usage"])
+        browser = await p.chromium.launch(args=CHROME_ARGS)
         page = await browser.new_page(viewport={"width": W, "height": H})
-        await page.goto(f.resolve().as_uri())
-        await page.wait_for_timeout(400)
+        await page.goto(f.resolve().as_uri(), wait_until="domcontentloaded")
+        # ждём Three.js с CDN + первый кадр WebGL
+        await page.wait_for_timeout(1200)
         delay = max(30, int(1000 / max(1, fps)))
         for i in range(frames):
             await page.screenshot(path=str(out_dir / f"f_{idx:02d}_{i:05d}.png"))
