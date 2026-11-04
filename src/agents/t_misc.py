@@ -1,0 +1,7 @@
+T_3D_OBJECT = '''<div style="width:220px;height:220px;margin:0 auto;border-radius:28px;background:linear-gradient(135deg,{c1},{c2});animation:spin 4s linear infinite"></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>'''
+T_3D_WORLD = '''<div style="width:360px;height:420px;margin:0 auto;border-radius:28px;background:linear-gradient(180deg,{c0},{c3} 60%,{c1})"></div>'''
+T_2D_SCENE = T_3D_WORLD
+T_2D_CARD = '''<div style="width:300px;height:400px;margin:0 auto;border-radius:28px;background:linear-gradient(160deg,{c1},{c3});display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;font-weight:700">{text}</div>'''
+T_ABSTRACT = '''<div style="width:300px;height:300px;margin:0 auto;border-radius:40%;background:linear-gradient(135deg,{c1},{c2});animation:spin 8s linear infinite"></div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>'''
+T_DEFAULT = '''<div style="width:160px;height:160px;margin:0 auto;border-radius:32px;background:linear-gradient(135deg,{c1},{c2})"></div>'''
+BASE_HTML = '''<!doctype html><html><head><style>body{margin:0;overflow:hidden;background:linear-gradient(135deg,{c0},{c3});height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif}.text{position:absolute;top:40px;width:90%;left:5%;text-align:center;font-size:36px;font-weight:800;color:{c2};text-shadow:0 4px 12px rgba(0,0,0,.45);z-index:10}</style></head><body><div class="text">{text}</div><div class="scene">{object_html}</div></body></html>'''
