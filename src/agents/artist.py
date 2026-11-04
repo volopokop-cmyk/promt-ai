@@ -7,7 +7,6 @@ import re
 T_3D_PERSON = r'''
 <div class="character" style="position:relative;width:420px;height:560px;margin:0 auto;">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script>
 (function(){
   const container=document.currentScript.parentElement;
@@ -16,63 +15,39 @@ T_3D_PERSON = r'''
   const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
   renderer.setSize(420,560);renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
   container.appendChild(renderer.domElement);
-  
   scene.add(new THREE.HemisphereLight(0xddeeff,0x443322,1.15));
   const key=new THREE.DirectionalLight(0xfff0dd,1.6);key.position.set(-2.5,5,4);scene.add(key);
-
-  // Загружаем GLB-модель
-  const loader = new THREE.GLTFLoader();
-  let mixer = null;
-  let model = null;
-  let actions = {};
-
-  loader.load('https://raw.githubusercontent.com/volopokop-cmyk/promt-ai/main/man.glb', (gltf) => {
-    model = gltf.scene;
-    
-    // Масштаб и позиция (если модель слишком большая/маленькая, меняй scale)
-    model.scale.set(1, 1, 1); 
-    model.position.set(0, 0, 0);
-    
-    scene.add(model);
-    
-    if (gltf.animations && gltf.animations.length > 0) {
-      mixer = new THREE.AnimationMixer(model);
-      for (const clip of gltf.animations) {
-        actions[clip.name] = mixer.clipAction(clip);
-      }
-    }
-  }, undefined, (error) => {
-    console.error('Ошибка загрузки модели:', error);
-  });
-
+  const skinMat=new THREE.MeshStandardMaterial({color:"{c1}",roughness:0.65});
+  const shirtMat=new THREE.MeshStandardMaterial({color:"{c2}",roughness:0.75});
+  const pantsMat=new THREE.MeshStandardMaterial({color:"#2a3a5c",roughness:0.8});
+  const root=new THREE.Group();scene.add(root);
+  const pelvis=new THREE.Group();pelvis.position.set(0,1.05,0);root.add(pelvis);
+  const spine=new THREE.Group();spine.position.set(0,0.18,0);pelvis.add(spine);
+  const chest=new THREE.Group();chest.position.set(0,0.28,0);spine.add(chest);
+  const neck=new THREE.Group();neck.position.set(0,0.38,0);chest.add(neck);
+  const head=new THREE.Group();head.position.set(0,0.22,0);neck.add(head);
+  const armL=new THREE.Group();armL.position.set(-0.38,0.2,0);chest.add(armL);
+  const armR=new THREE.Group();armR.position.set(0.38,0.2,0);chest.add(armR);
+  const legL=new THREE.Group();legL.position.set(-0.15,-0.05,0);pelvis.add(legL);
+  const legR=new THREE.Group();legR.position.set(0.15,-0.05,0);pelvis.add(legR);
+  function mesh(p,g,m,y=0,x=0,z=0){const o=new THREE.Mesh(g,m);o.position.set(x,y,z);p.add(o);return o;}
+  mesh(pelvis,new THREE.SphereGeometry(0.3,20,20),pantsMat,0,0,0).scale.set(1.15,0.75,0.95);
+  mesh(spine,new THREE.CylinderGeometry(0.24,0.26,0.38,18),shirtMat,0.12);
+  mesh(chest,new THREE.CylinderGeometry(0.27,0.25,0.4,18),shirtMat,0.12);
+  mesh(neck,new THREE.CylinderGeometry(0.09,0.1,0.18,14),skinMat,0.06);
+  mesh(head,new THREE.SphereGeometry(0.24,28,28),skinMat,0.2);
+  mesh(armL,new THREE.CylinderGeometry(0.085,0.075,0.55,14),skinMat,-0.28);
+  mesh(armR,new THREE.CylinderGeometry(0.085,0.075,0.55,14),skinMat,-0.28);
+  mesh(legL,new THREE.CylinderGeometry(0.11,0.095,0.75,14),pantsMat,-0.38);
+  mesh(legR,new THREE.CylinderGeometry(0.11,0.095,0.75,14),pantsMat,-0.38);
   camera.position.set(0,1.35,5);camera.lookAt(0,1.15,0);
-  const anim="{anim}";
-  const clock=new THREE.Clock();
-
-  function animate(){
-    requestAnimationFrame(animate);
-    const t=clock.getElapsedTime();
-    const delta = clock.getDelta();
-
-    if (mixer) {
-      mixer.update(delta);
-      if (anim === "walk" && actions["Walk"]) actions["Walk"].play();
-      else if (anim === "jump" && actions["Jump"]) actions["Jump"].play();
-      else if (anim === "wave" && actions["Wave"]) actions["Wave"].play();
-      else if (actions["Idle"]) actions["Idle"].play();
-    } 
-    else if (model) {
-      // Если встроенных анимаций нет, делаем простые движения кодом
-      if(anim==="jump"){
-        model.position.y = Math.abs(Math.sin(t*1.5))*0.3;
-      } else if(anim==="walk"){
-        model.position.z = Math.sin(t*5)*0.1;
-      } else if(anim==="wave"){
-        model.rotation.z = Math.sin(t*4)*0.1;
-      }
-    }
-    renderer.render(scene,camera);
-  }
+  const anim="{anim}";const clock=new THREE.Clock();
+  function animate(){requestAnimationFrame(animate);const t=clock.getElapsedTime();
+    if(anim==="jump"){const c=(t*1.5)%(Math.PI*2);root.position.y=Math.max(0,Math.sin(c))*0.38;armL.rotation.z=0.25+Math.sin(c)*0.35;armR.rotation.z=-0.25-Math.sin(c)*0.35;}
+    else if(anim==="wave"){armR.rotation.z=Math.sin(t*6)*0.45-1.35;}
+    else if(anim==="walk"){legL.rotation.x=Math.sin(t*5)*0.38;legR.rotation.x=-Math.sin(t*5)*0.38;}
+    else{chest.position.y=0.28+Math.sin(t*1.6)*0.012;}
+    renderer.render(scene,camera);}
   animate();
 })();
 </script></div>
@@ -149,34 +124,6 @@ T_3D_WORLD = r'''
 </script></div>
 '''
 
-T_2D_PERSON = r'''
-<div class="char2d" style="position:relative;width:280px;height:480px;margin:0 auto;">
-<svg viewBox="0 0 280 480" width="280" height="480" xmlns="http://www.w3.org/2000/svg">
-  <ellipse cx="140" cy="300" rx="70" ry="90" fill="{c2}"/>
-  <rect x="125" y="190" width="30" height="40" rx="10" fill="{c1}"/>
-  <circle cx="140" cy="140" r="62" fill="{c1}"/>
-  <path d="M78 130 Q140 40 202 130 Q190 95 140 85 Q90 95 78 130" fill="#3b2a1f"/>
-  <ellipse cx="118" cy="135" rx="12" ry="14" fill="#fff"/><ellipse cx="162" cy="135" rx="12" ry="14" fill="#fff"/>
-  <circle cx="120" cy="137" r="6" fill="#1a1a1a"/><circle cx="164" cy="137" r="6" fill="#1a1a1a"/>
-  <rect id="armR" x="212" y="230" width="28" height="110" rx="14" fill="{c1}" transform="rotate(-12 226 230)"/>
-  <rect x="105" y="380" width="28" height="90" rx="12" fill="#2a3a5c"/>
-  <rect x="147" y="380" width="28" height="90" rx="12" fill="#2a3a5c"/>
-  <g id="mouth" transform="translate(140,175)">
-    <ellipse id="mouthHole" cx="0" cy="0" rx="18" ry="3" fill="#2b1010"/>
-    <path id="lowerLip" d="M-20 0 Q0 8 20 0" stroke="#c45c6a" stroke-width="5" fill="none" stroke-linecap="round"/>
-  </g>
-</svg>
-<script>
-(function(){const lipCurve={lip_curve};const fps=15;const anim="{anim}";
-const hole=document.getElementById('mouthHole');const lower=document.getElementById('lowerLip');
-const armR=document.getElementById('armR');const t0=performance.now()/1000;
-function tick(){const el=performance.now()/1000-t0;const fr=Math.min(lipCurve.length-1,Math.max(0,Math.floor(el*fps)));
-const v=lipCurve.length?lipCurve[fr]:0;hole.setAttribute('ry',String(3+v*14));lower.setAttribute('d',`M-20 0 Q0 ${8+v*16} 20 0`);
-if(anim==='wave'&&armR)armR.setAttribute('transform',`rotate(${Math.sin(el*4.2)*18-12} 226 230)`);
-requestAnimationFrame(tick);}requestAnimationFrame(tick);})();
-</script></div>
-'''
-
 T_2D_SCENE = r'''
 <div class="scene2d" style="position:relative;width:360px;height:420px;margin:0 auto;">
   <div style="
@@ -201,31 +148,6 @@ T_2D_SCENE = r'''
 </style>
 '''
 
-T_2D_CARD = r'''
-<div class="card" style="width:320px;height:420px;background:linear-gradient(160deg,{c1},{c3});border-radius:28px;
-display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 20px 50px rgba(0,0,0,0.35);
-animation:floaty 3.5s ease-in-out infinite;">
-  <div style="width:110px;height:110px;border-radius:50%;background:{c2};margin-bottom:24px;box-shadow:0 8px 20px rgba(0,0,0,0.25);"></div>
-  <div style="color:white;font-size:22px;font-weight:700;text-align:center;padding:0 20px;line-height:1.3;text-shadow:0 2px 8px rgba(0,0,0,0.4);">{text}</div>
-</div>
-<style>@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}</style>
-'''
-
-T_ABSTRACT = r'''
-<div style="position:relative;width:380px;height:380px;margin:0 auto;">
-  <div class="a1" style="position:absolute;inset:10%;border-radius:40%;background:linear-gradient(135deg,{c1},{c2});
-    filter:blur(0.5px);animation:spin 8s linear infinite;opacity:0.9;"></div>
-  <div class="a2" style="position:absolute;inset:22%;border-radius:30%;background:linear-gradient(225deg,{c2},{c3});
-    animation:spin 12s linear infinite reverse;opacity:0.85;"></div>
-  <div class="a3" style="position:absolute;inset:36%;border-radius:50%;background:{c0};border:3px solid {c2};
-    box-shadow:0 0 40px {c1};animation:pulse 2.8s ease-in-out infinite;"></div>
-</div>
-<style>
-@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
-</style>
-'''
-
 T_DEFAULT = r'''
 <div style="width:180px;height:180px;border-radius:40px;background:linear-gradient(135deg,{c1},{c2});
 box-shadow:0 15px 40px rgba(0,0,0,0.3);animation:pulse 2.5s ease-in-out infinite;"></div>
@@ -236,10 +158,7 @@ TEMPLATES = {
     "3d_person": T_3D_PERSON,
     "3d_object": T_3D_OBJECT,
     "3d_world": T_3D_WORLD,
-    "2d_person": T_2D_PERSON,
     "2d_scene": T_2D_SCENE,
-    "2d_card": T_2D_CARD,
-    "abstract": T_ABSTRACT,
     "default": T_DEFAULT,
 }
 
@@ -257,25 +176,8 @@ color:{c2};text-shadow:0 4px 16px rgba(0,0,0,0.45);z-index:10;line-height:1.2;}
 </body></html>
 """
 
-PERSON_WORDS = [
-    "человек", "челик", "персонаж", "парень", "девушка", "мужик",
-    "женщина", "мужчина", "мальчик", "девочка", "герой",
-    "person", "man", "woman", "guy", "girl", "character", "boy", "girl"
-]
-WORLD_WORDS = [
-    "город", "мир", "планета", "космос", "лес", "море", "океан", "горы",
-    "пейзаж", "улица", "здание", "небо", "закат", "рассвет",
-    "city", "world", "planet", "space", "forest", "sea", "ocean", "mountain", "landscape"
-]
-OBJECT_WORDS = [
-    "шар", "куб", "мяч", "машина", "авто", "ракета", "робот", "коробка",
-    "кольцо", "тор", "конус", "цилиндр", "предмет", "объект",
-    "ball", "cube", "car", "rocket", "robot", "box", "ring", "object", "sphere"
-]
-ABSTRACT_WORDS = [
-    "абстрак", "энерги", "маги", "неон", "портал", "вихрь",
-    "abstract", "energy", "magic", "neon", "portal", "vortex"
-]
+PERSON_WORDS = ["человек", "челик", "персонаж", "парень", "девушка", "мужик", "женщина", "мужчина", "мальчик", "девочка", "герой"]
+WORLD_WORDS = ["город", "мир", "планета", "космос", "лес", "море", "океан", "горы", "пейзаж", "улица", "здание"]
 
 def _has_any(text: str, words: list) -> bool:
     t = (text or "").lower()
@@ -283,83 +185,47 @@ def _has_any(text: str, words: list) -> bool:
 
 def _pick_shape(idea: str) -> str:
     t = (idea or "").lower()
-    if any(w in t for w in ["шар", "мяч", "sphere", "ball"]): return "sphere"
-    if any(w in t for w in ["кольц", "тор", "ring", "torus"]): return "torus"
-    if any(w in t for w in ["конус", "cone", "ракет"]): return "cone"
-    if any(w in t for w in ["цилиндр", "cylinder"]): return "cylinder"
+    if any(w in t for w in ["шар", "мяч"]): return "sphere"
+    if any(w in t for w in ["кольц", "тор"]): return "torus"
+    if any(w in t for w in ["конус", "ракет"]): return "cone"
+    if any(w in t for w in ["цилиндр"]): return "cylinder"
     return "box"
 
-SYSTEM_PROMPT = """Выбери визуальный шаблон для сцены.
-Ключи:
-- 3d_person / 2d_person — только если есть человек/персонаж
-- 3d_object — предмет, шар, куб, робот, машина (3D)
-- 3d_world — город, мир, пейзаж, космос (3D)
-- 2d_scene — пейзаж/сцена в 2D
-- 2d_card — карточка с текстом
-- abstract — энергия, неон, абстракция
-- default — простая фигура
-
-Анимации: idle, spin, bounce, pulse, walk, wave, jump
-Верни СТРОГО JSON: {"key":"3d_object","anim":"spin"}"""
-
-def run(scene: dict, plan: dict, original_idea: str = "", lip_curve: list | None = None) -> str:
+def run(scene: dict, plan: dict, original_idea: str = "", lip_curve: list | None = None, use_llm: bool = True) -> str:
     c0 = plan["palette"][0] if len(plan.get("palette", [])) > 0 else "#1a1a2e"
     c1 = plan["palette"][1] if len(plan.get("palette", [])) > 1 else "#e94560"
     c2 = plan["palette"][2] if len(plan.get("palette", [])) > 2 else "#ffffff"
     c3 = plan["palette"][3] if len(plan.get("palette", [])) > 3 else "#16213e"
 
-    style = plan.get("style", "3d")
     idea = original_idea or ""
     scene_text = scene.get("text", "") or ""
-    blob = f"{idea} {scene_text}"
-
+    
     wants_person = _has_any(idea, PERSON_WORDS)
     wants_world = _has_any(idea, WORLD_WORDS)
-    wants_object = _has_any(idea, OBJECT_WORDS)
-    wants_abstract = _has_any(idea, ABSTRACT_WORDS)
-
+    
     if wants_person:
-        template_key = "2d_person" if style == "2d" else "3d_person"
+        template_key = "3d_person"
+    elif wants_world:
+        template_key = "3d_world"
     else:
-        if wants_world:
-            template_key = "2d_scene" if style == "2d" else "3d_world"
-        elif wants_object:
-            template_key = "2d_card" if style == "2d" else "3d_object"
-        elif wants_abstract:
-            template_key = "abstract"
-        else:
-            template_key = "2d_scene" if style == "2d" else "3d_object"
-
-    user = f"Стиль:{style}. Идея:{idea}. Сцена:{scene_text}"
-    response = ask(SYSTEM_PROMPT, user, max_new_tokens=60).strip()
+        template_key = "3d_object"
+        
+    object_html = TEMPLATES[template_key]
 
     anim = "idle"
-    try:
-        start = response.find("{")
-        end = response.rfind("}")
-        if start != -1 and end != -1:
-            data = json.loads(response[start:end+1])
-            anim = data.get("anim", "idle")
-    except Exception:
-        pass
+    if "прыг" in idea: anim = "jump"
+    elif "маш" in idea or "привет" in idea: anim = "wave"
+    elif "ид" in idea or "ход" in idea: anim = "walk"
+    elif template_key == "3d_object": anim = "spin"
 
-    if template_key == "3d_object" and anim in ("walk", "wave", "jump"):
-        anim = "spin"
-    if template_key in ("3d_person", "2d_person") and anim in ("spin", "bounce", "pulse"):
-        anim = "idle"
-
-    shape = _pick_shape(idea)
-    curve = lip_curve if lip_curve is not None else [0.0]
-    lip_js = json.dumps(curve)
-
-    object_html = TEMPLATES[template_key]
     text_safe = re.sub(r"[<>]", "", scene_text)[:80]
+    shape = _pick_shape(idea)
 
     html = BASE_HTML.replace("{text}", text_safe)
     html = html.replace("{c0}", c0).replace("{c1}", c1).replace("{c2}", c2).replace("{c3}", c3)
     html = html.replace("{object_html}", object_html)
     html = html.replace("{anim}", anim)
-    html = html.replace("{lip_curve}", lip_js)
+    html = html.replace("{lip_curve}", "[0.0]")
     html = html.replace("{shape}", shape)
-    html = html.replace("{text}", text_safe)
+    
     return html
